@@ -20,21 +20,20 @@
 ###########
 import os
 import re
-import nltk
-import spacy
+
 import string
 
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
 
-import tkinter as tk
 import gensim
 from gensim.models import FastText
 
-
+import nltk
 from nltk.tokenize import word_tokenize
 from nltk.stem import PorterStemmer
 
+import tkinter as tk
 from tkinter import filedialog
 
 
@@ -106,16 +105,13 @@ for ind in raw_data_copy.index:
 		incidental_finding_count+=1
 		# classify report as Code Abdomen
 		followup_type_list.append(1)
-		# print(ind," - FOCAL_MASS_SUMMARY")
 	elif "NON-EMERGENT ACTIONABLE FINDINGS" in report:
 		incidental_finding_count+=1
 		# classify report as Code Rec
 		followup_type_list.append(2)
-		# print(ind, " - NON-EMERGENT ACTIONABLE FINDINGS")
 	elif "START INTERVAL ONCOLOGIC RESPONSE ASSESSMENT (ABDOMEN-PELVIS)" in report:
 		# THIS IS NOT A F/U RECOMMENDATION
 		followup_type_list.append(-1)
-		# print(ind," - START INTERVAL ONCOLOGIC RESPONSE ASSESSMENT (ABDOMEN-PELVIS)")
 	else:
 		# case where F/U not present
 		followup_type_list.append(-2)
@@ -167,7 +163,7 @@ for ind in raw_data_copy.index:
 	# clean and tokenize the RAW report text (i.e. FU text has not been removed)
 	report_clean = clean_text(report)
 	reports_clean.append(report)
-	report_clean_tokenized = word_tokenize(report_clean)
+	report_clean_tokenized = word_token	ize(report_clean)
 	reports_clean_tokenized.append(report_clean_tokenized)
 	# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text stripped
 	# Note, to keep the lists the correct length, only do if followup_type > 0, otherwise these lists end up having as many rows as raw_data_copy
