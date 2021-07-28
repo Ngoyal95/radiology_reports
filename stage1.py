@@ -119,14 +119,6 @@ def main():
 	# Regex to capture the REC code associated with the Code Rec text
 	# code_rec_regex_coding = re.compile()
 
-	# ABDOMEN-PELVIS - these are NOT F/U reccs, could use as negative examples?
-	# Discard these (they are not follow-up recommendations)
-	# 1 does not capture start/end strings, 2 does
-	# use abd_pel_regex2 to capture the entire block for deletion
-	# abd_pel_regex1 = re.compile("(?sim)(?<=START INTERVAL ONCOLOGIC RESPONSE ASSESSMENT).*?(?=END INTERVAL ONCOLOGIC RESPONSE ASSESSMENT)")
-	# abd_pel_regex2 = re.compile("(?sim)START INTERVAL ONCOLOGIC RESPONSE ASSESSMENT.*?END INTERVAL ONCOLOGIC RESPONSE ASSESSMENT")
-
-
 	# Variables for data aggregation and statistics
 	# use followup_type_list to store 0 for Code Abdomen, 1 for Code Rec - used to determine if these reports contain F/U and if we can use them as 'labeled' training data
 	followup_type_list = []
