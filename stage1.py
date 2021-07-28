@@ -36,9 +36,6 @@ from nltk.stem import PorterStemmer
 import numpy as np
 from numpy import zeros
 
-import tkinter as tk
-from tkinter import filedialog
-
 
 ########################
 # FUNCTION DEFINITIONS #
@@ -86,12 +83,7 @@ def main():
 	# STEP 1 - READ IN DATA #
 	# functional 7/17/21	#
 	#########################
-	# get file path of reports
-	# root = tk.Tk()
-	# root.withdraw()
-	# file_path = filedialog.askopenfilename()
-	# input_file = os.path.join(cwd,file_path)
-
+	# import reports
 	cwd = os.getcwd()
 	input_file = os.path.join(cwd,'data/goyal_reports_with_codes.csv')
 
