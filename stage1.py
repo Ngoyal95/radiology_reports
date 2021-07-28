@@ -96,19 +96,6 @@ def main():
 	# 2. Count number of reports with incidental findings (based on Code Abdomen, Code Rec, other)
 	# 3. Pull the entries in the findings (ex the C1-C99, REC0-REC99 codes) and store as strings in a list
 
-	# Code Abdomen
-	# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
-	code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")
-	code_abd_regex_coding = re.compile()
-	
-	# Code Rec
-	# This regex is used to capture the entire Code Rec block for deletion from the text
-	# code_rec_regex_del = re.compile("(?sim)^NON-EMERGENT ACTIONABLE FINDINGS\s?\n^((Recommendation:[\w\s\d.]+(\[REC[\d]+[\w]?\][\w\s\d]?)+)+)")
-	code_rec_regex_del = re.compile("(?ims)(NON-EMERGENT ACTIONABLE FINDINGS)[\w\n\s\d,.!?\\\/-]*(Recommendation:[\w\s\d,.!?\\\/\-();:\[\]\{\}]*(\[REC[\d]+[\w]?\])[\n\s\d,.!?\\\/-]*\n*)")
-
-	# Regex to capture the REC code associated with the Code Rec text
-	# code_rec_regex_coding = re.compile()
-
 	# Variables for data aggregation and statistics
 	# use followup_type_list to store 0 for Code Abdomen, 1 for Code Rec - used to determine if these reports contain F/U and if we can use them as 'labeled' training data
 	followup_type_list = []
@@ -151,6 +138,22 @@ def main():
 	# Note: this can be done one of two ways
 	# a. (Per Lou 2020, JDI) lower case, remove punctuation/symbols/numbers, tokenize, remove stop words, porter stem
 	# b. lower case, tokenize, remove punctuation/symbols/numbers, remove stop words, porter stem
+
+	# Code Abdomen
+	# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
+	code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")
+	# regex to capture specific Code Abdomen option to determine if true F/U present
+	# call with re.findall to get all options listed
+	code_abd_regex_coding = re.compile("(?sim)(\{C(1|2|3|4|5|6|7|99):)")
+	
+	# Code Rec
+	# This regex is used to capture the entire Code Rec block for deletion from the text
+	# code_rec_regex_del = re.compile("(?sim)^NON-EMERGENT ACTIONABLE FINDINGS\s?\n^((Recommendation:[\w\s\d.]+(\[REC[\d]+[\w]?\][\w\s\d]?)+)+)")
+	code_rec_regex_del = re.compile("(?ims)(NON-EMERGENT ACTIONABLE FINDINGS)[\w\n\s\d,.!?\\\/-]*(Recommendation:[\w\s\d,.!?\\\/\-();:\[\]\{\}]*(\[REC[\d]+[\w]?\])[\n\s\d,.!?\\\/-]*\n*)")
+	# Regex to capture the REC code associated with the Code Rec text
+	# call with re.findall to get all options listed
+	code_rec_regex_coding = re.compile("(?sim)(\[REC(0|1|2a|2b|3a|3b|3c|4|5|99)\])")
+
 
 	# Store non-tokenized copy of report text
 	reports_clean = []
