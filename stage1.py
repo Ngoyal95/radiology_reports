@@ -5,7 +5,7 @@
 # Compatibility Information
 # Written for Python 3.9.5 on Windows 10
 # To execute from within the python interpreter, run:
-# 	exec(open("stage1.py").read())
+# 	python stage1.py
 
 # written: 7/15/2021
 # updates:
@@ -66,7 +66,6 @@ def clean_text(text):
 # 		word_embedding_map[w] = wv[i]
 
 # 	missing_words = []
-
 # 	for word in desired_words:
 # 		try:
 # 			list_idx = index2word.index(word)
@@ -75,7 +74,6 @@ def clean_text(text):
 # 				embedding_matrix[i] = embedding_vector
 # 		except:
 # 			missing_words.append(word)
-
 # 	print("Number of desired words missing from GloVe file: {}".format(len(missing_words)))
 	
 def main():
@@ -306,40 +304,7 @@ def main():
 		concat_embedding_matrix[i] = np.concatenate((v1,v2))
 
 
-	###
-	# STEP 5 - Deep Learning Model
-	# https://realpython.com/python-keras-text-classification/#keras-embedding-layer
-	from keras.models import Sequential
-	from keras import layers
-	vocab_size=len(vector_keywords)
-	maxlen=100
-	embedding_dim = 600
-	keras_model = Sequential()
-	keras_model.add(layers.Embedding(	input_dim=vocab_size,
-										output_dim=embedding_dim,
-										input_length=maxlen))
-
-	keras_model.add(layers.GlobalMaxPool1D())
-	keras_model.add(layers.Dense(10, activation='relu'))
-	keras_model.add(layers.Dense(1, activation='sigmoid'))
-	keras_model.compile(optimizer='adam',
-						loss='binary_crossentropy',
-						metrics=['accuracy'])
-	keras_model.summary()
-
-
-	# Train
-	# history = model.fit(X_train, y_train,
-	#                     epochs=50,
-	#                     verbose=False,
-	#                     validation_data=(X_test, y_test),
-	#                     batch_size=10)
-	# loss, accuracy = model.evaluate(X_train, y_train, verbose=False)
-	# print("Training Accuracy: {:.4f}".format(accuracy))
-	# loss, accuracy = model.evaluate(X_test, y_test, verbose=False)
-	# print("Testing Accuracy:  {:.4f}".format(accuracy))
-	# plot_history(history)
-
+# Save our Pandas DF and our new DF of embeddings for the next stage of pipeline (deep learning)
 
 if __name__ == '__main__':
 	main()
