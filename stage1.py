@@ -176,25 +176,28 @@ def main():
 			# code abdomen
 			result = re.findall(code_abd_regex, report)
 			followup_text.append(str(result))
-			report_noFU = report.replace(str(result),"")
-
-
+			report_noFU = report.replace(str(result),"")	#delete the recommendation text
+			result = re.findall(code_abd_regex_coding, report)
+			followup_codes.append(result)
 		elif followup_type == 2:
 			# code rec
 			result = re.findall(code_rec_regex_del, report)
 			followup_text.append(str(result))
-			report_noFU = report.replace(str(result),"")
-
-
+			report_noFU = report.replace(str(result),"")	#delete the recommendation text
+			result = re.findall(code_rec_regex_coding, report)
+			followup_codes.append(result)
 		else:
 			# report is neither Code Abdomen or Code Rec, so we consider it to NOT contain a followup recommendation
+			report_noFU.append("")
+			followup_text.append("")
+			followup_codes.append("")
 			pass
 		# clean and tokenize the RAW report text (i.e. FU text has not been removed)
 		report_clean = clean_text(report)
 		reports_clean.append(report)
 		report_clean_tokenized = word_tokenize(report_clean)
 		reports_clean_tokenized.append(report_clean_tokenized)
-		# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text stripped
+		# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text REMOVED
 		# Note, to keep the lists the correct length, only do if followup_type > 0, otherwise these lists end up having as many rows as raw_data_copy
 		if followup_type > 0:
 		# clean and tokenize (without FU)
