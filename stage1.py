@@ -3,7 +3,7 @@
 # Written by Nikhil Goyal, University of Pennsylvania Perelman School of Medicine, 2021
 
 # Compatibility Information
-# Written for Python 3.9.5 on Windows 10
+# Written for Python 3.7 on Windows 10
 # To execute from within the python interpreter, run:
 # 	python stage1.py
 
@@ -36,6 +36,7 @@ from nltk.stem import PorterStemmer
 import numpy as np
 from numpy import zeros
 
+from biobert_embedding.embedding import BiobertEmbedding
 
 ########################
 # FUNCTION DEFINITIONS #
@@ -51,6 +52,44 @@ def clean_text(text):
 	text_no_doublespace = re.sub('\s+', ' ', text_nopunct).strip()
 	return text_no_doublespace
 
+    def word_vector(self, text, handle_oov=True, filter_extra_tokens=True):
+
+        tokenized_text = self.process_text(text)
+
+        encoded_layers = self.eval_fwdprop_biobert(tokenized_text)
+
+        # Concatenate the tensors for all layers. We use `stack` here to
+        # create a new dimension in the tensor.
+        token_embeddings = torch.stack(encoded_layers, dim=0)
+        token_embeddings = torch.squeeze(token_embeddings, dim=1)
+        # Swap dimensions 0 and 1.
+        token_embeddings = token_embeddings.permute(1,0,2)
+
+        # Stores the token vectors, with shape [22 x 768]
+        word_embeddings = []
+        logger.info("Summing last 4 layers for each token")
+        # For each token in the sentence...
+        for token in token_embeddings:
+
+            # `token` is a [12 x 768] tensor
+            # Sum the vectors from the last four layers.
+            sum_vec = torch.sum(token[-4:], dim=0)
+
+            # Use `sum_vec` to represent `token`.
+            word_embeddings.append(sum_vec)
+
+        self.tokens = tokenized_text
+        if filter_extra_tokens:
+            # filter_spec_tokens: filter [CLS], [SEP] tokens.
+            word_embeddings = word_embeddings[1:-1]
+            self.tokens = tokenized_text[1:-1]
+
+        if handle_oov:
+            self.tokens, word_embeddings = self.handle_oov(self.tokens,word_embeddings)
+        logger.info(self.tokens)
+        logger.info("Shape of Word Embeddings = %s",str(len(word_embeddings)))
+        return word_embeddings
+		
 # def get_glove_vectors(desired_words, embedding_file_name_w_o_suffix, n_dim):
 # 	# desired_words = list of strings of the words we want to find
 # 	# n_dim = number of embeddings (300)
@@ -166,7 +205,7 @@ def main():
 	# For Code Abdomen/Rec reports, use this list to store their CODE text content
 	followup_text = []
 	# For Code Abdomen/Rec reports, determine which codes (i.e. C1-C99, REC1-REC99) is present
-	followup_codes = []
+	followup_options = []
 
 	for ind in raw_data_copy.index:
 		report = raw_data_copy['report'][ind]
@@ -178,63 +217,66 @@ def main():
 			followup_text.append(str(result))
 			report_noFU = report.replace(str(result),"")	#delete the recommendation text
 			result = re.findall(code_abd_regex_coding, report)
-			followup_codes.append(result)
+			followup_options.append(result)
 		elif followup_type == 2:
 			# code rec
 			result = re.findall(code_rec_regex_del, report)
 			followup_text.append(str(result))
 			report_noFU = report.replace(str(result),"")	#delete the recommendation text
 			result = re.findall(code_rec_regex_coding, report)
-			followup_codes.append(result)
+			followup_options.append(result)
 		else:
 			# report is neither Code Abdomen or Code Rec, so we consider it to NOT contain a followup recommendation
-			report_noFU.append("")
+			report_noFU = ""
 			followup_text.append("")
-			followup_codes.append("")
+			followup_options.append("")
 			pass
 		# clean and tokenize the RAW report text (i.e. FU text has not been removed)
 		report_clean = clean_text(report)
 		reports_clean.append(report)
 		report_clean_tokenized = word_tokenize(report_clean)
 		reports_clean_tokenized.append(report_clean_tokenized)
+		
 		# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text REMOVED
 		# Note, to keep the lists the correct length, only do if followup_type > 0, otherwise these lists end up having as many rows as raw_data_copy
-		if followup_type > 0:
-		# clean and tokenize (without FU)
-			report_clean_noFU = clean_text(report_noFU)
-			reports_clean_noFU.append(report_clean_noFU)
-			report_clean_tokenized_noFU = word_tokenize(report_clean_noFU)
-			reports_clean_tokenized_noFU.append(report_clean_tokenized_noFU)
-		else:
-			pass
+		report_clean_noFU = clean_text(report_noFU)
+		reports_clean_noFU.append(report_clean_noFU)
+		report_clean_tokenized_noFU = word_tokenize(report_clean_noFU)
+		reports_clean_tokenized_noFU.append(report_clean_tokenized_noFU)
+
 
 	# add new column consisting of the clean tokenized text (pre-stemming)
 	# This applies to all reports (with or without FU reccs)
-	raw_data_copy['report_clean_tokenized'] = reports_clean_tokenized
+	proc_reports = raw_data_copy
+	proc_reports['report_clean_tokenized'] = reports_clean_tokenized
+	proc_reports['followup_recommendation'] = followup_text
+	proc_reports['followup_options'] = followup_options
+	proc_reports['report_clean_noFU'] = reports_clean_noFU
+	proc_reports['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
 
 	# Create new dataframes
 	# copy the reports with no FUs to a new df
-	reports_no_followups = raw_data_copy[raw_data_copy['fu_type'] < 0]
+	# reports_no_followups = raw_data_copy[raw_data_copy['fu_type'] < 0]
 
-	# make new df with just reports w/ followups (i.e. Code Abdomen/Rec reports)
-	reports_with_followups = raw_data_copy[raw_data_copy['fu_type'] > 0]
-	reports_with_followups['followup_recommendation'] = followup_text
+	# # make new df with just reports w/ followups (i.e. Code Abdomen/Rec reports)
+	# reports_with_followups = raw_data_copy[raw_data_copy['fu_type'] > 0]
+	# reports_with_followups['followup_recommendation'] = followup_text
 
-	reports_with_followups['report_clean_noFU'] = reports_clean_noFU
-	reports_with_followups['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
+	# reports_with_followups['report_clean_noFU'] = reports_clean_noFU
+	# reports_with_followups['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
 
 	# Apply porter stemming
 	# https://stackoverflow.com/questions/37443138/python-stemming-with-pandas-dataframe
 	ps = PorterStemmer()
-	reports_no_followups['report_clean_tokenized_stemmed'] = reports_no_followups['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
-	reports_with_followups['report_clean_tokenized_stemmed_FU'] = reports_with_followups['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
-	reports_with_followups['report_clean_tokenized_stemmed_noFU'] = reports_with_followups['report_clean_tokenized_noFU'].apply(lambda x: [ps.stem(y) for y in x])
+	proc_reports['report_clean_tokenized_stemmed'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
+	proc_reports['report_clean_tokenized_stemmed_FU'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
+	proc_reports['report_clean_tokenized_stemmed_noFU'] = proc_reports['report_clean_tokenized_noFU'].apply(lambda x: [ps.stem(y) for y in x])
 
 	# Check how many reports that had FU text have no follow up text extracted (column: followup_recommendation)
 	# Note, it appears that we lose Followup text when the format in the report does not exactly match that which the regex looks for
 	# find reports missing FU text
-	missing_abd = int(reports_with_followups[(reports_with_followups['followup_recommendation'] == "[]") & (reports_with_followups['fu_type'] == 1)].count()[0])
-	missing_rec = int(reports_with_followups[(reports_with_followups['followup_recommendation'] == "[]") & (reports_with_followups['fu_type'] == 2)].count()[0])
+	missing_abd = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 1)].count()[0])
+	missing_rec = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 2)].count()[0])
 
 	# Percentage captured reports - used to refine our regex and get the # of missing reports to an acceptable level
 	percent_cap_abd	=	100*round((followup_type_list.count(1)-missing_abd)/followup_type_list.count(1),3)
@@ -253,7 +295,7 @@ def main():
 	# fastText
 	# train our word vector model using the reports that are flagged as fu_type == 0 or 1
 	# DO NOT include the FU text in the training data (so use only the field report_clean_tokenized_stemmed_noFU)
-	training_data = [x for x in reports_with_followups['report_clean_tokenized_stemmed_noFU']]
+	training_data = [x for x in proc_reports['report_clean_tokenized_stemmed_noFU']]
 	# utilize fasttext implementation from gensim, skip-gram procedure (sg=1), 300-dimensional embeddings (vector_size=300)
 	# https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText
 	model = FastText(training_data, sg=1, min_count=1, vector_size=300)
@@ -269,6 +311,9 @@ def main():
 	# https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText.save
 	FastText.save(model, os.path.join(cwd,'data/fasttext_trained_model_300dim'))
 
+	#####################################
+	# STEP 5 - Pulling GloVe embeddings #
+	#####################################
 	# https://machinelearningmastery.com/develop-word-embeddings-python-gensim/
 	# Use Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download)
 	glove_filename = 'data/glove_models/glove.840B.300d.txt'
@@ -309,8 +354,12 @@ def main():
 		v2 = embedding_matrix[i]
 		concat_embedding_matrix[i] = np.concatenate((v1,v2))
 
+	#####################################
+	# STEP 6 - Pulling BioBERT embeddings #
+	#####################################
 
 # Save our Pandas DF and our new DF of embeddings for the next stage of pipeline (deep learning)
+
 
 if __name__ == '__main__':
 	main()
