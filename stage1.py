@@ -5,15 +5,18 @@
 # Compatibility Information
 # Written for Python 3.7 on Windows 10
 # To execute from within the python interpreter, run:
+#	exec(open("stage1.py").read())
+# To run from command line:
 # 	python stage1.py
 
 # written: 7/15/2021
-# updates:
-#   7/15/2021
-#       1.
-#       2.
-#       3.
-#       4.
+
+
+###################
+# GlOBAL SETTINGS #
+###################
+use_glove = 0
+use_biobert = 1
 
 ###########
 # IMPORTS #
@@ -36,6 +39,7 @@ from nltk.stem import PorterStemmer
 import numpy as np
 from numpy import zeros
 
+# imports to utilize BioBERT embeddings
 from biobert_embedding.embedding import BiobertEmbedding
 
 ########################
@@ -52,69 +56,6 @@ def clean_text(text):
 	text_no_doublespace = re.sub('\s+', ' ', text_nopunct).strip()
 	return text_no_doublespace
 
-    def word_vector(self, text, handle_oov=True, filter_extra_tokens=True):
-
-        tokenized_text = self.process_text(text)
-
-        encoded_layers = self.eval_fwdprop_biobert(tokenized_text)
-
-        # Concatenate the tensors for all layers. We use `stack` here to
-        # create a new dimension in the tensor.
-        token_embeddings = torch.stack(encoded_layers, dim=0)
-        token_embeddings = torch.squeeze(token_embeddings, dim=1)
-        # Swap dimensions 0 and 1.
-        token_embeddings = token_embeddings.permute(1,0,2)
-
-        # Stores the token vectors, with shape [22 x 768]
-        word_embeddings = []
-        logger.info("Summing last 4 layers for each token")
-        # For each token in the sentence...
-        for token in token_embeddings:
-
-            # `token` is a [12 x 768] tensor
-            # Sum the vectors from the last four layers.
-            sum_vec = torch.sum(token[-4:], dim=0)
-
-            # Use `sum_vec` to represent `token`.
-            word_embeddings.append(sum_vec)
-
-        self.tokens = tokenized_text
-        if filter_extra_tokens:
-            # filter_spec_tokens: filter [CLS], [SEP] tokens.
-            word_embeddings = word_embeddings[1:-1]
-            self.tokens = tokenized_text[1:-1]
-
-        if handle_oov:
-            self.tokens, word_embeddings = self.handle_oov(self.tokens,word_embeddings)
-        logger.info(self.tokens)
-        logger.info("Shape of Word Embeddings = %s",str(len(word_embeddings)))
-        return word_embeddings
-		
-# def get_glove_vectors(desired_words, embedding_file_name_w_o_suffix, n_dim):
-# 	# desired_words = list of strings of the words we want to find
-# 	# n_dim = number of embeddings (300)
-	
-# 	print("Loading binary word embedding from {0}.vocab and {0}.npy".format(embedding_file_name_w_o_suffix))
-
-# 	with codecs.open(embedding_file_name_w_o_suffix + '.vocab', 'r', 'utf-8') as f_in:
-# 		index2word = [line.strip() for line in f_in]
-
-# 	wv = np.load(embedding_file_name_w_o_suffix + '.npy')
-# 	word_embedding_map = {}
-# 	for i, w in enumerate(index2word):
-# 		word_embedding_map[w] = wv[i]
-
-# 	missing_words = []
-# 	for word in desired_words:
-# 		try:
-# 			list_idx = index2word.index(word)
-# 			embedding_vector = word_embedding_map[list_idx]
-# 			if embedding_vector is not None:
-# 				embedding_matrix[i] = embedding_vector
-# 		except:
-# 			missing_words.append(word)
-# 	print("Number of desired words missing from GloVe file: {}".format(len(missing_words)))
-	
 def main():
 	#########################
 	# STEP 1 - READ IN DATA #
@@ -314,52 +255,102 @@ def main():
 	#####################################
 	# STEP 5 - Pulling GloVe embeddings #
 	#####################################
-	# https://machinelearningmastery.com/develop-word-embeddings-python-gensim/
-	# Use Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download)
-	glove_filename = 'data/glove_models/glove.840B.300d.txt'
-	# glove_model = KeyedVectors.load_word2vec_format(os.path.join(cwd,glove_filename), binary=False, no_header=True)
-	glove_model = KeyedVectors.load_word2vec_format(os.path.join(cwd,glove_filename), binary=False, no_header=True)
+	if use_glove == 1:
+		print("\nUsing GloVe embeddings...\n")
+		# https://machinelearningmastery.com/develop-word-embeddings-python-gensim/
+		# Use Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download)
+		glove_filename = 'data/glove_models/glove.840B.300d.txt'
+		# glove_model = KeyedVectors.load_word2vec_format(os.path.join(cwd,glove_filename), binary=False, no_header=True)
+		glove_model = KeyedVectors.load_word2vec_format(os.path.join(cwd,glove_filename), binary=False, no_header=True)
 
-	# find the glove embeddings for our list of words (vector_keywords) and pull their vectors, store in similar format to our fasttext model for concat
-	# https://machinelearningmastery.com/use-word-embedding-layers-deep-learning-keras/
+		# find the glove embeddings for our list of words (vector_keywords) and pull their vectors, store in similar format to our fasttext model for concat
+		# https://machinelearningmastery.com/use-word-embedding-layers-deep-learning-keras/
 
-	# quick check for how many words in our corpus are missing from GloVe
-	num_missing_words=0
-	for word in vector_keywords:
-		try:
-			embedding_vector = glove_model[word]
-		except:
-			num_missing_words+=1
-	print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
+		# quick check for how many words in our corpus are missing from GloVe
+		num_missing_words=0
+		for word in vector_keywords:
+			try:
+				embedding_vector = glove_model[word]
+			except:
+				num_missing_words+=1
+		print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
 
-	# init a matrix (300 cols for our words present in dataset
-	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
-	num_missing_words=0
-	embedding_matrix = zeros((len(vector_keywords), 300))
-	i=0
-	for word in vector_keywords:
-		try:
-			embedding_vector = glove_model[word]
-			if embedding_vector is not None:
-				embedding_matrix[i] = embedding_vector
-		except:
-			num_missing_words+=1
-		i+=1
+		# init a matrix (300 cols for our words present in dataset
+		# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
+		num_missing_words=0
+		embedding_matrix = zeros((len(vector_keywords), 300))
+		i=0
+		for word in vector_keywords:
+			try:
+				embedding_vector = glove_model[word]
+				if embedding_vector is not None:
+					embedding_matrix[i] = embedding_vector
+			except:
+				num_missing_words+=1
+			i+=1
 
-	# for words in the reports in our training corpus, concatenate with the GloVe embeddings (Steinkamp et al, JDI 19 June 2019)
-	# purpose is that combination of embeddings from large volume training data (GloVe) combined with domain-specific embeddings (fasttext model) will yield superior performance than either alone
-	concat_embedding_matrix = zeros((len(vector_keywords), 600))
-	for i in range(0,len(vector_keywords)):
-		v1 = word_vectors[i]
-		v2 = embedding_matrix[i]
-		concat_embedding_matrix[i] = np.concatenate((v1,v2))
+		# for words in the reports in our training corpus, concatenate with the GloVe embeddings (Steinkamp et al, JDI 19 June 2019)
+		# purpose is that combination of embeddings from large volume training data (GloVe) combined with domain-specific embeddings (fasttext model) will yield superior performance than either alone
+		concat_embedding_matrix = zeros((len(vector_keywords), 600))
+		for i in range(0,len(vector_keywords)):
+			v1 = word_vectors[i]
+			v2 = embedding_matrix[i]
+			concat_embedding_matrix[i] = np.concatenate((v1,v2))
+	else:
+		pass
 
-	#####################################
+	#######################################
 	# STEP 6 - Pulling BioBERT embeddings #
-	#####################################
+	#######################################
+	if use_biobert == 1:
+		print("\nUsing BioBERT embeddings...\n")
+		biobert = BiobertEmbedding()
+
+		# Access embeddings as follows:
+		# word_embeddings = biobert.word_vector(text) 
+		
+		# quick check for how many words in our corpus are missing from BioBERT
+		num_missing_words=0
+		for word in vector_keywords:
+			try:
+				embedding_vector = biobert.word_vector(word)
+			except:
+				num_missing_words+=1
+		print("Percentage of training corpus missing from BioBERT:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
+
+		# init a matrix (768 cols because BioBERT has this many embedding values per word)
+		num_missing_words=0
+		embedding_matrix = zeros((len(vector_keywords), 768))
+		i=0
+		for word in vector_keywords:
+			try:
+				embedding_vector = biobert.word_vector(word)
+				if embedding_vector is not None:
+					embedding_matrix[i] = embedding_vector
+			except:
+				num_missing_words+=1
+			i+=1
+
+		concat_embedding_matrix = zeros((len(vector_keywords), 1068))
+		for i in range(0,len(vector_keywords)):
+			v1 = word_vectors[i]
+			v2 = embedding_matrix[i]
+			concat_embedding_matrix[i] = np.concatenate((v1,v2))
+
+	else:
+		pass
+
+	
+
+	###########################################
+	# STEP 7 - PCA / Dimensionality Reduction #
+	###########################################
+
+	#################################################
+	# STEP 8 - Save embeddings matrix for stage2.py #
+	#################################################
 
 # Save our Pandas DF and our new DF of embeddings for the next stage of pipeline (deep learning)
-
 
 if __name__ == '__main__':
 	main()
