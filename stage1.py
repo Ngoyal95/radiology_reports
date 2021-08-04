@@ -276,7 +276,7 @@ FastText.save(model, os.path.join(cwd,'data/fasttext_trained_model_300dim'))
 # STEP 5 - Pulling GloVe embeddings #
 #####################################
 if use_glove == 1:
-	print("\nUsing GloVe embeddings...\n")
+	print("\nPulling GloVe embeddings...\n")
 	# https://machinelearningmastery.com/develop-word-embeddings-python-gensim/
 	# Use Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download)
 	glove_filename = 'data/glove_models/glove.840B.300d.txt'
@@ -337,12 +337,14 @@ else:
 # STEP 6 - Pulling BioBERT embeddings #
 #######################################
 if use_biobert == 1:
-	print("\nUsing BioBERT embeddings...\n")
+	print("\nPulling BioBERT embeddings...\n")
 	biobert = BiobertEmbedding()
+
+	# Note, another package to access BioBERT is transformer
+	# https://stackoverflow.com/questions/58518980/extracting-fixed-vectors-from-biobert-without-using-terminal-command
 
 	# Access embeddings as follows:
 	# word_embeddings = biobert.word_vector(text) 
-	
 	concat_embedding_matrix = zeros((len(vector_keywords), 1068))
 	num_missing_words=0
 	missing_words=[]
@@ -377,8 +379,6 @@ if use_biobert == 1:
 else:
 	pass
 
-
-
 	####################################################
 	# STEP 7 - Save data for stage2.py (deep learning) #
 	####################################################
@@ -386,6 +386,4 @@ else:
 
 	# Save report id/label files (for training/testing)
 
-
-
-	print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")
+print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")
