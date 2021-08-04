@@ -115,9 +115,13 @@ raw_data_copy.drop(raw_data_copy[raw_data_copy['fu_type'] == -1].index, inplace=
 # note, functional as of 7/17/21
 ###############################################################
 # Note 7/20/2021 - fastText has a tokenizer, possible option to use that instead of nltk
-# Note: this can be done one of two ways
-# a. (Per Lou 2020, JDI) lower case, remove punctuation/symbols/numbers, tokenize, remove stop words, porter stem
+# Obtaining semantic content can be done one of two ways
+# a. (Per Lou 2020, JDI) lower case, remove punctuation/symbols/numbers, tokenize, remove stop words, porter stem (PRESENT CODE USES THIS)
 # b. lower case, tokenize, remove punctuation/symbols/numbers, remove stop words, porter stem
+
+# Codes to be used for Follow-up label
+code_abd_fu_codes = ['C3','C4','C5']
+code_rec_fu_codes = ['REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5']
 
 # Code Abdomen
 # regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
@@ -158,6 +162,10 @@ followup_options = []
 # for sake of curiosity, how many reports have act 112 text
 act_112_count = 0
 
+# flag 1 = F/U label, 0 = no F/u
+followup_label = []
+# Use for detecting presence of a F/U option that for labeling (i.e C3,C4,C5, REC2b, etc..)
+check = False
 
 for ind in raw_data_copy.index:
 	report = raw_data_copy['report'][ind]
@@ -180,6 +188,12 @@ for ind in raw_data_copy.index:
 		report_noFU = report.replace(str(result),"")	#delete the recommendation text
 		result = re.findall(code_abd_regex_coding, report)
 		followup_options.append(result)
+		
+		# look at the Code Abdomen codes and determine if C3, C4, or C5 (all will be flagged as F/U)
+		# https://www.codegrepper.com/code-examples/python/check+if+a+list+contains+any+item+from+another+list+python
+		# Check any element of code_abd_fu_codes in result
+		check = any(item in result for item in code_abd_fu_codes)
+
 	elif followup_type == 2:
 		# code rec
 		result = re.findall(code_rec_regex, report)
@@ -187,18 +201,28 @@ for ind in raw_data_copy.index:
 		report_noFU = report.replace(str(result),"")	#delete the recommendation text
 		result = re.findall(code_rec_regex_coding, report)
 		followup_options.append(result)
+
+		# look at Code Rec codes and determine if REC2b/3*/4/5 present (all will be flagged as F/U)
+		check = any(item in result for item in code_rec_fu_codes)
+
 	else:
 		# report is neither Code Abdomen or Code Rec, so we consider it to NOT contain a followup recommendation
 		report_noFU = report
 		followup_text.append("")
 		followup_options.append("")
 		pass
+
+	if check:
+		followup_label.append(1)
+	else:
+		followup_label.append(0)
+
 	# clean and tokenize the RAW report text (i.e. FU text has not been removed)
 	report_clean = clean_text(report)
 	reports_clean.append(report)
 	report_clean_tokenized = word_tokenize(report_clean)
 	reports_clean_tokenized.append(report_clean_tokenized)
-	
+
 	# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text REMOVED
 	# Note, to keep the lists the correct length, only do if followup_type > 0, otherwise these lists end up having as many rows as raw_data_copy
 	report_clean_noFU = clean_text(report_noFU)
@@ -215,17 +239,7 @@ proc_reports['followup_recommendation'] = followup_text
 proc_reports['followup_options'] = followup_options
 proc_reports['report_clean_noFU'] = reports_clean_noFU
 proc_reports['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
-
-# Create new dataframes
-# copy the reports with no FUs to a new df
-# reports_no_followups = raw_data_copy[raw_data_copy['fu_type'] < 0]
-
-# # make new df with just reports w/ followups (i.e. Code Abdomen/Rec reports)
-# reports_with_followups = raw_data_copy[raw_data_copy['fu_type'] > 0]
-# reports_with_followups['followup_recommendation'] = followup_text
-
-# reports_with_followups['report_clean_noFU'] = reports_clean_noFU
-# reports_with_followups['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
+proc_reports['fu_label'] = followup_label
 
 # Apply porter stemming
 # https://stackoverflow.com/questions/37443138/python-stemming-with-pandas-dataframe
@@ -288,16 +302,6 @@ if use_glove == 1:
 
 	# init a matrix (300 cols for our words present in dataset
 	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
-	# concat_embedding_matrix = zeros((len(vector_keywords), 600))
-	# num_missing_words=0
-	# for word in vector_keywords:
-	# 	try:
-	# 		embedding_vector = glove_model[word]
-	# 	except:
-	# 		num_missing_words+=1
-
-	# init a matrix (300 cols for our words present in dataset
-	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
 	num_missing_words=0
 	missing_words = []
 	concat_embedding_matrix = zeros((len(vector_keywords), 600))
@@ -313,14 +317,6 @@ if use_glove == 1:
 			num_missing_words+=1
 		i+=1
 	print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
-
-	# for words in the reports in our training corpus, concatenate with the GloVe embeddings (Steinkamp et al, JDI 19 June 2019)
-	# purpose is that combination of embeddings from large volume training data (GloVe) combined with domain-specific embeddings (fasttext model) will yield superior performance than either alone
-	# 	concat_embedding_matrix = zeros((len(vector_keywords), 600))
-	# 	for i in range(0,len(vector_keywords)):
-	# 		v1 = word_vectors[i]
-	# 		v2 = embedding_matrix[i]
-	# 		concat_embedding_matrix[i] = np.concatenate((v1,v2))
 	
 	# PCA
 	# https://theslaps.medium.com/using-pca-to-help-visualize-word-embeddings-sklearn-matplotlib-6f681979fc95
@@ -337,11 +333,12 @@ else:
 # STEP 6 - Pulling BioBERT embeddings #
 #######################################
 if use_biobert == 1:
-	print("\nPulling BioBERT embeddings...\n")
-	biobert = BiobertEmbedding()
-
+	# Using biobert_embeddings package
 	# Note, another package to access BioBERT is transformer
 	# https://stackoverflow.com/questions/58518980/extracting-fixed-vectors-from-biobert-without-using-terminal-command
+
+	print("\nPulling BioBERT embeddings...\n")
+	biobert = BiobertEmbedding()
 
 	# Access embeddings as follows:
 	# word_embeddings = biobert.word_vector(text) 
@@ -351,7 +348,6 @@ if use_biobert == 1:
 	i=0
 	for word in vector_keywords:
 		try:
-			# embedding_vector = biobert.word_vector(word)
 			v2 = np.asarray(biobert.word_vector(vector_keywords[i])[0])
 			if v2 is not None:
 				v1 = word_vectors[i]
@@ -361,12 +357,6 @@ if use_biobert == 1:
 			missing_words.append(word)
 		i+=1
 	print("Percentage of training corpus missing from BioBERT:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
-
-	# concat_embedding_matrix = zeros((len(vector_keywords), 1068))
-	# for i in range(0,len(vector_keywords)):
-	# 	v1 = word_vectors[i]
-	# 	v2 = np.asarray(biobert.word_vector(vector_keywords[i])[0])
-	# 	concat_embedding_matrix[i] = np.concatenate((v1,v2))
 
 	# PCA
 	# https://theslaps.medium.com/using-pca-to-help-visualize-word-embeddings-sklearn-matplotlib-6f681979fc95
@@ -383,7 +373,6 @@ else:
 	# STEP 7 - Save data for stage2.py (deep learning) #
 	####################################################
 	# Save tokenized, labeled data (large dataframe)
-
 	# Save report id/label files (for training/testing)
 
 print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")
