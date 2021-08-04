@@ -3,7 +3,8 @@
 # Written by Nikhil Goyal, University of Pennsylvania Perelman School of Medicine, 2021
 
 # Compatibility Information
-# Written for Python 3.7 on Windows 10
+# 	Written for Python 3.7 on Windows 10
+
 # To execute from within the python interpreter, run:
 #	exec(open("stage1.py").read())
 # To run from command line:
@@ -12,7 +13,7 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 0
+use_glove = 1
 use_biobert = 1
 
 ###########
@@ -102,6 +103,7 @@ for ind in raw_data_copy.index:
 raw_data_copy['fu_type'] = followup_type_list
 
 # Basic statistics
+print("\n\n------BEGIN STAGE1 SCRIPT PRINT OUTPUT------\n")
 print("numer of Code Abdomen | Code Rec | Abdomen-Pelvis | None:", followup_type_list.count(1), followup_type_list.count(2), followup_type_list.count(-1), followup_type_list.count(-2))
 print("total number NON-CodeAbd/NON-CodeRec", followup_type_list.count(-1)+followup_type_list.count(-2))
 
@@ -138,7 +140,6 @@ code_rec_regex_coding = re.compile("(?sim)(\[REC(0|1|2a|2b|3a|3b|3c|4|5|99)\])")
 # Detect and redact using regex to capture:
 # 	FOLLOW-UP NOTICE: ......... [FOLxx]
 # act_112_regex = re.compile("(?ims)(FOLLOW-UP NOTICE:[\n\w\s\d,.!?\\\/\-();:\[\]\{\}]*\[FOL[\d\w].*(?=\]))")
-
 act_112_regex = re.compile("(?ims)(FOLLOW-UP NOTICE:[\n\w\s\d,.!?\\\/\-();:\[\]\{\}]*\[FOL3M\])")
 
 # Store non-tokenized copy of report text
@@ -285,36 +286,50 @@ if use_glove == 1:
 	# find the glove embeddings for our list of words (vector_keywords) and pull their vectors, store in similar format to our fasttext model for concat
 	# https://machinelearningmastery.com/use-word-embedding-layers-deep-learning-keras/
 
-	# quick check for how many words in our corpus are missing from GloVe
-	num_missing_words=0
-	for word in vector_keywords:
-		try:
-			embedding_vector = glove_model[word]
-		except:
-			num_missing_words+=1
-	print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
+	# init a matrix (300 cols for our words present in dataset
+	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
+	# concat_embedding_matrix = zeros((len(vector_keywords), 600))
+	# num_missing_words=0
+	# for word in vector_keywords:
+	# 	try:
+	# 		embedding_vector = glove_model[word]
+	# 	except:
+	# 		num_missing_words+=1
 
 	# init a matrix (300 cols for our words present in dataset
 	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
 	num_missing_words=0
-	embedding_matrix = zeros((len(vector_keywords), 300))
+	missing_words = []
+	concat_embedding_matrix = zeros((len(vector_keywords), 600))
 	i=0
 	for word in vector_keywords:
 		try:
-			embedding_vector = glove_model[word]
-			if embedding_vector is not None:
-				embedding_matrix[i] = embedding_vector
+			v2 = glove_model[word]
+			if v2 is not None:
+				v1 = word_vectors[i]
+				concat_embedding_matrix[i] = np.concatenate((v1,v2))
 		except:
+			missing_words.append(word)
 			num_missing_words+=1
 		i+=1
+	print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
 
 	# for words in the reports in our training corpus, concatenate with the GloVe embeddings (Steinkamp et al, JDI 19 June 2019)
 	# purpose is that combination of embeddings from large volume training data (GloVe) combined with domain-specific embeddings (fasttext model) will yield superior performance than either alone
-	concat_embedding_matrix = zeros((len(vector_keywords), 600))
-	for i in range(0,len(vector_keywords)):
-		v1 = word_vectors[i]
-		v2 = embedding_matrix[i]
-		concat_embedding_matrix[i] = np.concatenate((v1,v2))
+	# 	concat_embedding_matrix = zeros((len(vector_keywords), 600))
+	# 	for i in range(0,len(vector_keywords)):
+	# 		v1 = word_vectors[i]
+	# 		v2 = embedding_matrix[i]
+	# 		concat_embedding_matrix[i] = np.concatenate((v1,v2))
+	
+	# PCA
+	# https://theslaps.medium.com/using-pca-to-help-visualize-word-embeddings-sklearn-matplotlib-6f681979fc95
+	pca = PCA(n_components=300)
+	pca_embedding_data = pca.fit_transform(concat_embedding_matrix)
+	# Save post-PCA word embeddings
+	# https://numpy.org/doc/stable/reference/generated/numpy.save.html
+	outpath = os.path.join(cwd,'data/processed_data/glove_pca_embedding_data')
+	np.save(outpath, pca_embedding_data, allow_pickle=False)
 else:
 	pass
 
@@ -328,39 +343,49 @@ if use_biobert == 1:
 	# Access embeddings as follows:
 	# word_embeddings = biobert.word_vector(text) 
 	
-	# quick check for how many words in our corpus are missing from BioBERT
+	concat_embedding_matrix = zeros((len(vector_keywords), 1068))
 	num_missing_words=0
+	missing_words=[]
+	i=0
 	for word in vector_keywords:
 		try:
-			embedding_vector = biobert.word_vector(word)
+			# embedding_vector = biobert.word_vector(word)
+			v2 = np.asarray(biobert.word_vector(vector_keywords[i])[0])
+			if v2 is not None:
+				v1 = word_vectors[i]
+				concat_embedding_matrix[i] = np.concatenate((v1,v2))
 		except:
 			num_missing_words+=1
+			missing_words.append(word)
+		i+=1
 	print("Percentage of training corpus missing from BioBERT:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
 
-	concat_embedding_matrix = zeros((len(vector_keywords), 1068))
-	for i in range(0,len(vector_keywords)):
-		v1 = word_vectors[i]
-		v2 = np.asarray(biobert.word_vector(vector_keywords[i])[0])
-		concat_embedding_matrix[i] = np.concatenate((v1,v2))
-else:
-	pass
+	# concat_embedding_matrix = zeros((len(vector_keywords), 1068))
+	# for i in range(0,len(vector_keywords)):
+	# 	v1 = word_vectors[i]
+	# 	v2 = np.asarray(biobert.word_vector(vector_keywords[i])[0])
+	# 	concat_embedding_matrix[i] = np.concatenate((v1,v2))
 
-	
-	###########################################
-	# STEP 7 - PCA / Dimensionality Reduction #
-	###########################################
+	# PCA
 	# https://theslaps.medium.com/using-pca-to-help-visualize-word-embeddings-sklearn-matplotlib-6f681979fc95
 	pca = PCA(n_components=300)
 	pca_embedding_data = pca.fit_transform(concat_embedding_matrix)
+	# Save post-PCA word embeddings
+	# https://numpy.org/doc/stable/reference/generated/numpy.save.html
+	outpath = os.path.join(cwd,'data/processed_data/biobert_pca_embedding_data')
+	np.save(outpath, pca_embedding_data, allow_pickle=False)
+else:
+	pass
+
+
 
 	####################################################
-	# STEP 8 - Save data for stage2.py (deep learning) #
+	# STEP 7 - Save data for stage2.py (deep learning) #
 	####################################################
 	# Save tokenized, labeled data (large dataframe)
 
 	# Save report id/label files (for training/testing)
 
-	# Save post-PCA word embeddings
-	# https://numpy.org/doc/stable/reference/generated/numpy.save.html
-	outpath = os.path.join(cwd,'data/processed_data/pca_embedding_data')
-	np.save(outpath, pca_embedding_data, allow_pickle=False)
+
+
+	print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")
