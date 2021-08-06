@@ -13,8 +13,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 0
-use_biobert = 0
+use_glove = 1
+use_biobert = 1
 
 ###########
 # IMPORTS #
@@ -22,6 +22,8 @@ use_biobert = 0
 import os
 import re
 import string
+import sys
+
 
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -37,6 +39,7 @@ import numpy as np
 from numpy import zeros
 
 # imports to utilize BioBERT embeddings
+sys.path.append('/biobert_embedding/')
 from biobert_embedding.embedding import BiobertEmbedding
 
 # PCA on word embeddings
