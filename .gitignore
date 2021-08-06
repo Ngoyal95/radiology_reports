@@ -1,0 +1,15 @@
+# Ignore everything in this directory
+*
+# Except this file
+!.gitignore
+
+# Folders
+!data/
+
+
+# Files
+
+
+# Scripts
+!stage1.py
+!stage2.py

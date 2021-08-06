@@ -13,8 +13,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 1
-use_biobert = 1
+use_glove = 0
+use_biobert = 0
 
 ###########
 # IMPORTS #
@@ -42,6 +42,11 @@ from biobert_embedding.embedding import BiobertEmbedding
 # PCA on word embeddings
 from sklearn.decomposition import PCA
 
+# train-test split
+from sklearn.datasets import make_blobs
+from sklearn.model_selection import train_test_split
+
+
 ########################
 # FUNCTION DEFINITIONS #
 ########################
@@ -67,6 +72,9 @@ input_file = os.path.join(cwd,'data/goyal_reports_with_codes.csv')
 # read in data to pandas dataframe
 raw_data = pd.read_csv(input_file)
 
+# drop the existing id column that is taken from CSV file, replace with a new index col
+raw_data.drop(['ID'], axis=1, inplace=True)
+raw_data['idx'] = raw_data.index
 
 ######################################################
 # STEP 2 - Preliminary identification of F/U recommendation and statistics #
@@ -132,18 +140,14 @@ code_abd_regex_coding = re.compile("(?sim)(\{C(1|2|3|4|5|6|7|99):)")
 
 # Code Rec
 # This regex is used to capture the entire Code Rec block for deletion from the text
-# code_rec_regex = re.compile("(?sim)^NON-EMERGENT ACTIONABLE FINDINGS\s?\n^((Recommendation:[\w\s\d.]+(\[REC[\d]+[\w]?\][\w\s\d]?)+)+)")
 code_rec_regex = re.compile("(?ims)(NON-EMERGENT ACTIONABLE FINDINGS)[\w\n\s\d,.!?\\\/-]*(Recommendation:[\w\s\d,.!?\\\/\-();:\[\]\{\}]*(\[REC[\d]+[\w]?\])[\n\s\d,.!?\\\/-]*\n*)")
 # Regex to capture the REC code associated with the Code Rec text
 # call with re.findall to get all options listed
 code_rec_regex_coding = re.compile("(?sim)(\[REC(0|1|2a|2b|3a|3b|3c|4|5|99)\])")
 
 # Act 112 Notification
-# Format of this block of text:
-# 	FOLLOW-UP NOTICE: blah blah blah blah. [FOL3M]
 # Detect and redact using regex to capture:
-# 	FOLLOW-UP NOTICE: ......... [FOLxx]
-# act_112_regex = re.compile("(?ims)(FOLLOW-UP NOTICE:[\n\w\s\d,.!?\\\/\-();:\[\]\{\}]*\[FOL[\d\w].*(?=\]))")
+# 	FOLLOW-UP NOTICE: ......... [FOL3M]
 act_112_regex = re.compile("(?ims)(FOLLOW-UP NOTICE:[\n\w\s\d,.!?\\\/\-();:\[\]\{\}]*\[FOL3M\])")
 
 # Store non-tokenized copy of report text
@@ -159,7 +163,7 @@ followup_text = []
 # For Code Abdomen/Rec reports, determine which codes (i.e. C1-C99, REC1-REC99) is present
 followup_options = []
 
-# for sake of curiosity, how many reports have act 112 text
+# how many reports have act 112 text
 act_112_count = 0
 
 # flag 1 = F/U label, 0 = no F/u
@@ -188,11 +192,12 @@ for ind in raw_data_copy.index:
 		report_noFU = report.replace(str(result),"")	#delete the recommendation text
 		result = re.findall(code_abd_regex_coding, report)
 		followup_options.append(result)
-		
 		# look at the Code Abdomen codes and determine if C3, C4, or C5 (all will be flagged as F/U)
 		# https://www.codegrepper.com/code-examples/python/check+if+a+list+contains+any+item+from+another+list+python
 		# Check any element of code_abd_fu_codes in result
-		check = any(item in result for item in code_abd_fu_codes)
+		# check = any(item in result for item in code_abd_fu_codes)
+		codes_in_text = [item[0] for item in result]
+		check = any([s for s in codes_in_text if any(xs in s for xs in code_abd_fu_codes)])
 
 	elif followup_type == 2:
 		# code rec
@@ -201,16 +206,17 @@ for ind in raw_data_copy.index:
 		report_noFU = report.replace(str(result),"")	#delete the recommendation text
 		result = re.findall(code_rec_regex_coding, report)
 		followup_options.append(result)
-
 		# look at Code Rec codes and determine if REC2b/3*/4/5 present (all will be flagged as F/U)
-		check = any(item in result for item in code_rec_fu_codes)
+		# check = any(item in result for item in code_rec_fu_codes)
+		codes_in_text = [item[0] for item in result]
+		check = any([s for s in codes_in_text if any(xs in s for xs in code_rec_fu_codes)])
 
 	else:
 		# report is neither Code Abdomen or Code Rec, so we consider it to NOT contain a followup recommendation
 		report_noFU = report
 		followup_text.append("")
 		followup_options.append("")
-		pass
+		check = False
 
 	if check:
 		followup_label.append(1)
@@ -234,10 +240,11 @@ for ind in raw_data_copy.index:
 # add new column consisting of the clean tokenized text (pre-stemming)
 # This applies to all reports (with or without FU reccs)
 proc_reports = raw_data_copy
-proc_reports['report_clean_tokenized'] = reports_clean_tokenized
 proc_reports['followup_recommendation'] = followup_text
 proc_reports['followup_options'] = followup_options
+proc_reports['report_clean'] = reports_clean
 proc_reports['report_clean_noFU'] = reports_clean_noFU
+proc_reports['report_clean_tokenized'] = reports_clean_tokenized
 proc_reports['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
 proc_reports['fu_label'] = followup_label
 
@@ -248,9 +255,8 @@ proc_reports['report_clean_tokenized_stemmed'] = proc_reports['report_clean_toke
 proc_reports['report_clean_tokenized_stemmed_FU'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
 proc_reports['report_clean_tokenized_stemmed_noFU'] = proc_reports['report_clean_tokenized_noFU'].apply(lambda x: [ps.stem(y) for y in x])
 
-# Check how many reports that had FU text have no follow up text extracted (column: followup_recommendation)
-# Note, it appears that we lose Followup text when the format in the report does not exactly match that which the regex looks for
-# find reports missing FU text
+# Check how many reports that had FU are not captured by regex (column: followup_recommendation)
+# we lose Followup text when the format in the report does not exactly match that which the regex looks for
 missing_abd = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 1)].count()[0])
 missing_rec = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 2)].count()[0])
 
@@ -259,18 +265,39 @@ percent_cap_abd	=	100*round((followup_type_list.count(1)-missing_abd)/followup_t
 percent_cap_rec	=	100*round((followup_type_list.count(2)-missing_rec)/followup_type_list.count(2),3)
 print("\nPercent FU captured by regex in:\n\tCode Abdomen:{} \t|\t Code Rec:{}".format(percent_cap_abd, percent_cap_rec))
 
-# Save as CSV for visual inspection
-# cwd = os.getcwd()
+
+# TODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODO
+# drop rows where we fail to capture the FU recc:
+# proc_reports.drop([(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 1)])
+# proc_reports.drop([(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 2)])
+
+
+# Save as CSV for manual inspection
 proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
 
+#######################################
+# STEP 4 - Make train-test split sets #
+#######################################
+# 80/20 train/test split using scikitlearn
+# Note, only pseudo-random split, because we want to have the same split for testing different models (Repeatable Train-Test Splits)
+# https://machinelearningmastery.com/train-test-split-for-evaluating-machine-learning-algorithms/
+df_train, df_test = train_test_split(proc_reports, test_size=0.20, random_state=1)
+
+####################################################
+# STEP 5 - Save data for stage2.py (deep learning) #
+####################################################
+# From these files, the relevant columns for the deep learning model are:
+# 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
+df_train.to_csv(os.path.join(cwd,'data/processed_data/df_train.csv'))
+df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'))
 
 ################################
-# STEP 4 - Feature Engineering #
+# STEP 6 - Feature Engineering #
 ################################
 # fastText
 # train our word vector model using the reports that are flagged as fu_type == 0 or 1
 # DO NOT include the FU text in the training data (so use only the field report_clean_tokenized_stemmed_noFU)
-training_data = [x for x in proc_reports['report_clean_tokenized_stemmed_noFU']]
+training_data = [x for x in df_train['report_clean_tokenized_stemmed_noFU']]
 # utilize fasttext implementation from gensim, skip-gram procedure (sg=1), 300-dimensional embeddings (vector_size=300)
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText
 model = FastText(training_data, sg=1, min_count=1, vector_size=300)
@@ -284,10 +311,11 @@ vector_keywords = list(word_vectors.key_to_index.keys())
 # model.wv['node']
 	
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText.save
-FastText.save(model, os.path.join(cwd,'data/fasttext_trained_model_300dim'))
+FastText.save(model, os.path.join(cwd,'data/processed_data/fasttext_trained_model_300dim'))
+
 
 #####################################
-# STEP 5 - Pulling GloVe embeddings #
+# STEP 7 - Pulling GloVe embeddings #
 #####################################
 if use_glove == 1:
 	print("\nPulling GloVe embeddings...\n")
@@ -303,7 +331,7 @@ if use_glove == 1:
 	# init a matrix (300 cols for our words present in dataset
 	# out-of-vocab (OOV) words missing from GloVe corpus will just be a vector of zeros
 	num_missing_words=0
-	missing_words = []
+	glove_missing_words = []
 	concat_embedding_matrix = zeros((len(vector_keywords), 600))
 	i=0
 	for word in vector_keywords:
@@ -313,7 +341,7 @@ if use_glove == 1:
 				v1 = word_vectors[i]
 				concat_embedding_matrix[i] = np.concatenate((v1,v2))
 		except:
-			missing_words.append(word)
+			glove_missing_words.append(word)
 			num_missing_words+=1
 		i+=1
 	print("Percentage of training corpus missing from GloVe:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
@@ -324,16 +352,23 @@ if use_glove == 1:
 	pca_embedding_data = pca.fit_transform(concat_embedding_matrix)
 	# Save post-PCA word embeddings
 	# https://numpy.org/doc/stable/reference/generated/numpy.save.html
-	outpath = os.path.join(cwd,'data/processed_data/glove_pca_embedding_data')
+	outpath = os.path.join(cwd,'data/processed_data/fasttext-glove_pca-proc_embedding_data')
 	np.save(outpath, pca_embedding_data, allow_pickle=False)
+
+	# save copy of list of the missing words (just for inspection to see how BioBERT handles these missing words)
+	with open(os.path.join(cwd,'data/processed_data/glove_missing_words.txt'), 'w') as f:
+		for item in glove_missing_words:
+			f.write("%s\n" % item)
 else:
 	pass
 
 #######################################
-# STEP 6 - Pulling BioBERT embeddings #
+# STEP 8 - Pulling BioBERT embeddings #
 #######################################
 if use_biobert == 1:
-	# Using biobert_embeddings package
+	# Using biobert_embeddings package (with some slight modifications to embeddings.py)
+	# https://github.com/Overfitter/biobert_embedding
+
 	# Note, another package to access BioBERT is transformer
 	# https://stackoverflow.com/questions/58518980/extracting-fixed-vectors-from-biobert-without-using-terminal-command
 
@@ -344,7 +379,7 @@ if use_biobert == 1:
 	# word_embeddings = biobert.word_vector(text) 
 	concat_embedding_matrix = zeros((len(vector_keywords), 1068))
 	num_missing_words=0
-	missing_words=[]
+	biobert_missing_words=[]
 	i=0
 	for word in vector_keywords:
 		try:
@@ -354,7 +389,7 @@ if use_biobert == 1:
 				concat_embedding_matrix[i] = np.concatenate((v1,v2))
 		except:
 			num_missing_words+=1
-			missing_words.append(word)
+			biobert_missing_words.append(word)
 		i+=1
 	print("Percentage of training corpus missing from BioBERT:\t{}".format(round(100*num_missing_words/len(vector_keywords),3)))
 
@@ -364,15 +399,9 @@ if use_biobert == 1:
 	pca_embedding_data = pca.fit_transform(concat_embedding_matrix)
 	# Save post-PCA word embeddings
 	# https://numpy.org/doc/stable/reference/generated/numpy.save.html
-	outpath = os.path.join(cwd,'data/processed_data/biobert_pca_embedding_data')
+	outpath = os.path.join(cwd,'data/processed_data/fasttext-biobert_pca-proc_embedding_data')
 	np.save(outpath, pca_embedding_data, allow_pickle=False)
 else:
 	pass
-
-	####################################################
-	# STEP 7 - Save data for stage2.py (deep learning) #
-	####################################################
-	# Save tokenized, labeled data (large dataframe)
-	# Save report id/label files (for training/testing)
 
 print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")
