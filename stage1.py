@@ -39,7 +39,7 @@ import numpy as np
 from numpy import zeros
 
 # imports to utilize BioBERT embeddings
-sys.path.append('/biobert_embedding/')
+sys.path.append('/biobert_embedding/biobert_embedding/')
 from biobert_embedding.embedding import BiobertEmbedding
 
 # PCA on word embeddings
