@@ -6,10 +6,9 @@
 # Folders
 !data/
 !biobert_embedding/
-!dependencies/
 
 # Files
-
+!requirements.py
 
 # Scripts
 !stage1.py
