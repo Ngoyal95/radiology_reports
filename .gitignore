@@ -5,7 +5,8 @@
 
 # Folders
 !data/
-
+!biobert_embedding/
+!dependencies/
 
 # Files
 
