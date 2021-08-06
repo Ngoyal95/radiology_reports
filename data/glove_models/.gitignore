@@ -4,9 +4,9 @@
 !.gitignore
 
 # Folders
-!processed_data
-!glove_models
+
 
 # Files
+
 
 # Scripts
