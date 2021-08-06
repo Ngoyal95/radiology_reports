@@ -13,8 +13,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 1
-use_biobert = 1
+use_glove = 0
+use_biobert = 0
 
 ###########
 # IMPORTS #
@@ -24,6 +24,7 @@ import re
 import string
 import sys
 
+from collections import Counter
 
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -79,73 +80,66 @@ raw_data = pd.read_csv(input_file)
 raw_data.drop(['ID'], axis=1, inplace=True)
 raw_data['idx'] = raw_data.index
 
-######################################################
-# STEP 2 - Preliminary identification of F/U recommendation and statistics #
-######################################################
-# 1. Detect presence of a Code Abdomen / Code Rec entry / ABDOMEN-PELVIS for puposes of stripping from the report
-# 2. Count number of reports with incidental findings (based on Code Abdomen, Code Rec, other)
-# 3. Pull the entries in the findings (ex the C1-C99, REC0-REC99 codes) and store as strings in a list
-
-# Variables for data aggregation and statistics
-# use followup_type_list to store 0 for Code Abdomen, 1 for Code Rec - used to determine if these reports contain F/U and if we can use them as 'labeled' training data
-followup_type_list = []
-incidental_finding_count = 0
+###############################################################
+# STEP 2 - Categorize reports (code abdomen, code rec, other) #
+###############################################################
+# report_category values are {1: code abdomen, 2:code rec, -1: code cancer, -2: other}
+report_category = []
 raw_data_copy = raw_data
 
 for ind in raw_data_copy.index:
 	report = raw_data_copy['report'][ind]
 	if "FOCAL_MASS_SUMMARY" in report:
-		incidental_finding_count+=1
-		# classify report as Code Abdomen
-		followup_type_list.append(1)
+		# Code Abdomen
+		report_category.append(1)
 	elif "NON-EMERGENT ACTIONABLE FINDINGS" in report:
-		incidental_finding_count+=1
-		# classify report as Code Rec
-		followup_type_list.append(2)
+		# Code Rec
+		report_category.append(2)
 	elif "START INTERVAL ONCOLOGIC RESPONSE ASSESSMENT (ABDOMEN-PELVIS)" in report:
-		# Code Cancer - THIS IS NOT A F/U RECOMMENDATION
+		# Code Cancer
 		# Drop these reports because they may skew our model since all these patients have known malignancy
-		followup_type_list.append(-1)
+		report_category.append(-1)
 	else:
 		# case where F/U not present
-		followup_type_list.append(-2)
+		report_category.append(-2)
 
-# make new column with the followup_type as new column
-raw_data_copy['fu_type'] = followup_type_list
+# make new column with the report_category as new column
+raw_data_copy['report_category'] = report_category
 
 # Basic statistics
+d = Counter(report_category)
 print("\n\n------BEGIN STAGE1 SCRIPT PRINT OUTPUT------\n")
-print("numer of Code Abdomen | Code Rec | Abdomen-Pelvis | None:", followup_type_list.count(1), followup_type_list.count(2), followup_type_list.count(-1), followup_type_list.count(-2))
-print("total number NON-CodeAbd/NON-CodeRec", followup_type_list.count(-1)+followup_type_list.count(-2))
+print("Number of\n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tCode Cancer\t{} \n\tNoneOfAbove\t{} \n\t ".format(
+	d[1], d[2], d[-1], d[-2]
+	))
 
-# Drop all Code Cancer reports (flagged 'fu_type' == -1)
-raw_data_copy.drop(raw_data_copy[raw_data_copy['fu_type'] == -1].index, inplace=True)
+# Drop all Code Cancer reports (flagged 'report_category' == -1)
+raw_data_copy.drop(raw_data_copy[raw_data_copy['report_category'] == -1].index, inplace=True)
 
 ###############################################################
 # STEP 3 - Obtain fundamental semantic content of each report #
 # note, functional as of 7/17/21
 ###############################################################
 # Note 7/20/2021 - fastText has a tokenizer, possible option to use that instead of nltk
-# Obtaining semantic content can be done one of two ways
-# a. (Per Lou 2020, JDI) lower case, remove punctuation/symbols/numbers, tokenize, remove stop words, porter stem (PRESENT CODE USES THIS)
-# b. lower case, tokenize, remove punctuation/symbols/numbers, remove stop words, porter stem
+# Obtaining semantic content
+# (Per Lou 2020, JDI) lower case, remove punctuation/symbols/numbers, tokenize, remove stop words, porter stem (PRESENT CODE USES THIS)
 
 # Codes to be used for Follow-up label
 code_abd_fu_codes = ['C3','C4','C5']
 code_rec_fu_codes = ['REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5']
 
+# use this for sanity check to make sure we capture all the codes correctly
+# code_abd_fu_codes = ['C1','C2','C3','C4','C5','C6','C7','C99']
+# code_rec_fu_codes = ['REC0','REC1','REC2a','REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5','REC99']
+
 # Code Abdomen
-# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
-code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")
-# regex to capture specific Code Abdomen option to determine if true F/U present
-# call with re.findall to get all options listed
-code_abd_regex_coding = re.compile("(?sim)(\{C(1|2|3|4|5|6|7|99):)")
+code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")	# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
+# regex to capture specific Code Abdomen option to determine if true F/U present, call with re.findall to get all options listed
+code_abd_regex_coding = re.compile("(?sim)(\{C(1|2|3|4|5|6|7|99|X):)")
 
 # Code Rec
-# This regex is used to capture the entire Code Rec block for deletion from the text
 code_rec_regex = re.compile("(?ims)(NON-EMERGENT ACTIONABLE FINDINGS)[\w\n\s\d,.!?\\\/-]*(Recommendation:[\w\s\d,.!?\\\/\-();:\[\]\{\}]*(\[REC[\d]+[\w]?\])[\n\s\d,.!?\\\/-]*\n*)")
-# Regex to capture the REC code associated with the Code Rec text
-# call with re.findall to get all options listed
+# Regex to capture the REC code associated with the Code Rec text, call with re.findall to get all options listed
 code_rec_regex_coding = re.compile("(?sim)(\[REC(0|1|2a|2b|3a|3b|3c|4|5|99)\])")
 
 # Act 112 Notification
@@ -165,18 +159,17 @@ reports_clean_tokenized_noFU = []
 followup_text = []
 # For Code Abdomen/Rec reports, determine which codes (i.e. C1-C99, REC1-REC99) is present
 followup_options = []
-
-# how many reports have act 112 text
-act_112_count = 0
-
 # flag 1 = F/U label, 0 = no F/u
 followup_label = []
 # Use for detecting presence of a F/U option that for labeling (i.e C3,C4,C5, REC2b, etc..)
 check = False
 
+# how many reports have act 112 text
+act_112_count = 0
+
 for ind in raw_data_copy.index:
 	report = raw_data_copy['report'][ind]
-	followup_type = raw_data_copy['fu_type'][ind]
+	rep_cat = raw_data_copy['report_category'][ind]
 
 	# detect and remove the Act 112 Follow-up text
 	try:
@@ -188,34 +181,38 @@ for ind in raw_data_copy.index:
 		pass
 
 	# remove F/U recc
-	if followup_type == 1:
-		# code abdomen
-		result = re.findall(code_abd_regex, report)
-		followup_text.append(str(result))
-		report_noFU = report.replace(str(result),"")	#delete the recommendation text
+	if rep_cat == 1:
+		# Code Abdomen
+		# find Code Abd text block with regex
+		code_abd_text_block = re.findall(code_abd_regex, report)
+		followup_text.append(str(code_abd_text_block))
+		report_noFU = report.replace(str(code_abd_text_block),"")	#delete the Code Abd recommendation text
+
+		# Pull out the followup options (eg C1,C2,C3...) that are present in the report
 		result = re.findall(code_abd_regex_coding, report)
 		followup_options.append(result)
-		# look at the Code Abdomen codes and determine if C3, C4, or C5 (all will be flagged as F/U)
-		# https://www.codegrepper.com/code-examples/python/check+if+a+list+contains+any+item+from+another+list+python
-		# Check any element of code_abd_fu_codes in result
-		# check = any(item in result for item in code_abd_fu_codes)
+
+		# Flag C3/C4/C5 as followup_label=1
 		codes_in_text = [item[0] for item in result]
 		check = any([s for s in codes_in_text if any(xs in s for xs in code_abd_fu_codes)])
 
-	elif followup_type == 2:
-		# code rec
-		result = re.findall(code_rec_regex, report)
-		followup_text.append(str(result))
-		report_noFU = report.replace(str(result),"")	#delete the recommendation text
+	elif rep_cat == 2:
+		# Code Rec
+		# Find Code Rec text block using regex
+		code_rec_text_block = re.findall(code_rec_regex, report)
+		followup_text.append(str(code_rec_text_block))
+		report_noFU = report.replace(str(code_rec_text_block),"")	#delete the recommendation text
+		
+		# Pull out the followup options (eg REC0,REC1,REC2b...) that are present in the report
 		result = re.findall(code_rec_regex_coding, report)
 		followup_options.append(result)
-		# look at Code Rec codes and determine if REC2b/3*/4/5 present (all will be flagged as F/U)
-		# check = any(item in result for item in code_rec_fu_codes)
+
+		# Flag REC2b/3/3a/3b/3c/4/5 as followup_label=1
 		codes_in_text = [item[0] for item in result]
 		check = any([s for s in codes_in_text if any(xs in s for xs in code_rec_fu_codes)])
 
 	else:
-		# report is neither Code Abdomen or Code Rec, so we consider it to NOT contain a followup recommendation
+		# This text report is neither Code Abdomen or Code Rec category
 		report_noFU = report
 		followup_text.append("")
 		followup_options.append("")
@@ -226,57 +223,65 @@ for ind in raw_data_copy.index:
 	else:
 		followup_label.append(0)
 
-	# clean and tokenize the RAW report text (i.e. FU text has not been removed)
-	report_clean = clean_text(report)
-	reports_clean.append(report)
-	report_clean_tokenized = word_tokenize(report_clean)
-	reports_clean_tokenized.append(report_clean_tokenized)
-
-	# If this report happens to be one that contains a FU, we need to make a copy of report with the Code Abdomen / Code Rec F/U text REMOVED
-	# Note, to keep the lists the correct length, only do if followup_type > 0, otherwise these lists end up having as many rows as raw_data_copy
+	# clean and tokenize the RAW report text
+	# report_clean = clean_text(report)
+	# reports_clean.append(report)
+	# report_clean_tokenized = word_tokenize(report_clean)
+	# reports_clean_tokenized.append(report_clean_tokenized)
+	
+	# clean and tokenize the report text after CodeAbdomen/CodeRec text has been removed
 	report_clean_noFU = clean_text(report_noFU)
 	reports_clean_noFU.append(report_clean_noFU)
 	report_clean_tokenized_noFU = word_tokenize(report_clean_noFU)
 	reports_clean_tokenized_noFU.append(report_clean_tokenized_noFU)
 
-
 # add new column consisting of the clean tokenized text (pre-stemming)
 # This applies to all reports (with or without FU reccs)
 proc_reports = raw_data_copy
-proc_reports['followup_recommendation'] = followup_text
+proc_reports['followup_text'] = followup_text
 proc_reports['followup_options'] = followup_options
-proc_reports['report_clean'] = reports_clean
+
+# copies with FU Code Abd/Rec text
+# proc_reports['report_clean'] = reports_clean
+# proc_reports['report_clean_tokenized'] = reports_clean_tokenized
+
 proc_reports['report_clean_noFU'] = reports_clean_noFU
-proc_reports['report_clean_tokenized'] = reports_clean_tokenized
 proc_reports['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
 proc_reports['fu_label'] = followup_label
 
 # Apply porter stemming
 # https://stackoverflow.com/questions/37443138/python-stemming-with-pandas-dataframe
 ps = PorterStemmer()
-proc_reports['report_clean_tokenized_stemmed'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
-proc_reports['report_clean_tokenized_stemmed_FU'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
+# proc_reports['report_clean_tokenized_stemmed'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
+# proc_reports['report_clean_tokenized_stemmed_FU'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
 proc_reports['report_clean_tokenized_stemmed_noFU'] = proc_reports['report_clean_tokenized_noFU'].apply(lambda x: [ps.stem(y) for y in x])
 
-# Check how many reports that had FU are not captured by regex (column: followup_recommendation)
+# Check how many reports that had FU are not captured by regex (column: followup_text)
 # we lose Followup text when the format in the report does not exactly match that which the regex looks for
-missing_abd = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 1)].count()[0])
-missing_rec = int(proc_reports[(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 2)].count()[0])
+missing_abd = int(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 1)].count()[0])
+missing_rec = int(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 2)].count()[0])
 
 # Percentage captured reports - used to refine our regex and get the # of missing reports to an acceptable level
-percent_cap_abd	=	100*round((followup_type_list.count(1)-missing_abd)/followup_type_list.count(1),3)
-percent_cap_rec	=	100*round((followup_type_list.count(2)-missing_rec)/followup_type_list.count(2),3)
-print("\nPercent FU captured by regex in:\n\tCode Abdomen:{} \t|\t Code Rec:{}".format(percent_cap_abd, percent_cap_rec))
+percent_cap_abd	=	100*round((report_category.count(1)-missing_abd)/report_category.count(1),3)
+percent_cap_rec	=	100*round((report_category.count(2)-missing_rec)/report_category.count(2),3)
+print("\nPercent of Code Abdomen / Code Rec text blocks captured by regex:\n\tCode Abdomen\t{} \n\tCode Rec\t{}".format(percent_cap_abd, percent_cap_rec))
 
 
 # TODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODO
 # drop rows where we fail to capture the FU recc:
-# proc_reports.drop([(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 1)])
-# proc_reports.drop([(proc_reports['followup_recommendation'] == "[]") & (proc_reports['fu_type'] == 2)])
+# proc_reports.drop([(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 1)])
+# proc_reports.drop([(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 2)])
 
 
+d = Counter(followup_label)
+print("\nFull Dataset Statistics:")
+print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d[0]))
+
+# print("\nSaving stage1_proc_data.csv...")
 # Save as CSV for manual inspection
 proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
+proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
+proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
 
 #######################################
 # STEP 4 - Make train-test split sets #
@@ -284,13 +289,33 @@ proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv')
 # 80/20 train/test split using scikitlearn
 # Note, only pseudo-random split, because we want to have the same split for testing different models (Repeatable Train-Test Splits)
 # https://machinelearningmastery.com/train-test-split-for-evaluating-machine-learning-algorithms/
+print("\nGenerating 80/20 train-test split sets...")
 df_train, df_test = train_test_split(proc_reports, test_size=0.20, random_state=1)
+
+
+tr_followup_label = list(df_train['fu_label'])
+tr_report_category = list(df_train['report_category'])
+d1 = Counter(tr_followup_label)
+d2 = Counter(tr_report_category)
+print("\nNumber of reports in TRAINING set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(tr_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
+
+te_followup_label = list(df_test['fu_label'])
+te_report_category = list(df_test['report_category'])
+d1 = Counter(te_followup_label)
+d2 = Counter(te_report_category)
+print("\nNumber of reports in TEST set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(te_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
+
+print("\nActual percent split between train and test sets:\n\tTrain {} \n\tTest {}".format(
+	round(len(tr_followup_label)/len(followup_label),5),
+	round(len(te_followup_label)/len(followup_label),5)
+	))
 
 ####################################################
 # STEP 5 - Save data for stage2.py (deep learning) #
 ####################################################
 # From these files, the relevant columns for the deep learning model are:
 # 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
+print("\nSaving train-test split sets...")
 df_train.to_csv(os.path.join(cwd,'data/processed_data/df_train.csv'))
 df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'))
 
@@ -298,9 +323,10 @@ df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'))
 # STEP 6 - Feature Engineering #
 ################################
 # fastText
-# train our word vector model using the reports that are flagged as fu_type == 0 or 1
+# train our word vector model using the reports that are flagged as report_category == 0 or 1
 # DO NOT include the FU text in the training data (so use only the field report_clean_tokenized_stemmed_noFU)
 training_data = [x for x in df_train['report_clean_tokenized_stemmed_noFU']]
+print("\nTraining fastText model on {} reports...".format(len(training_data)))
 # utilize fasttext implementation from gensim, skip-gram procedure (sg=1), 300-dimensional embeddings (vector_size=300)
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText
 model = FastText(training_data, sg=1, min_count=1, vector_size=300)
