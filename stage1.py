@@ -1,6 +1,5 @@
 # analysis pipeline 1.0
 # Stage 1 script
-# Written by Nikhil Goyal, University of Pennsylvania Perelman School of Medicine, 2021
 
 # Compatibility Information
 # 	Written for Python 3.7 on Windows 10
@@ -23,6 +22,7 @@ import os
 import re
 import string
 import sys
+import pickle
 
 from collections import Counter
 
@@ -50,7 +50,6 @@ from sklearn.decomposition import PCA
 from sklearn.datasets import make_blobs
 from sklearn.model_selection import train_test_split
 
-
 ########################
 # FUNCTION DEFINITIONS #
 ########################
@@ -64,6 +63,7 @@ def clean_text(text):
 	# Also, removes leading and trailing whitespaces
 	text_no_doublespace = re.sub('\s+', ' ', text_nopunct).strip()
 	return text_no_doublespace
+
 
 #########################
 # STEP 1 - READ IN DATA #
@@ -269,19 +269,21 @@ print("\nPercent of Code Abdomen / Code Rec text blocks captured by regex:\n\tCo
 
 # TODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODO
 # drop rows where we fail to capture the FU recc:
-# proc_reports.drop([(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 1)])
-# proc_reports.drop([(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 2)])
+proc_reports.drop(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 1)].index, inplace=True)
+proc_reports.drop(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 2)].index, inplace=True)
 
-
+# post-drop stats
+followup_label = list(proc_reports['fu_label'])
 d = Counter(followup_label)
 print("\nFull Dataset Statistics:")
 print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d[0]))
 
+
 # print("\nSaving stage1_proc_data.csv...")
 # Save as CSV for manual inspection
-proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
-proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
-proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
+# proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
+# proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
+# proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
 
 #######################################
 # STEP 4 - Make train-test split sets #
@@ -316,8 +318,11 @@ print("\nActual percent split between train and test sets:\n\tTrain {} \n\tTest 
 # From these files, the relevant columns for the deep learning model are:
 # 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
 print("\nSaving train-test split sets...")
-df_train.to_csv(os.path.join(cwd,'data/processed_data/df_train.csv'))
-df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'))
+# df_train.to_csv(os.path.join(cwd,'data/processed_data/df_train.csv'), index=False, header=True, sep='\t')
+# df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'), index=False, header=True, sep='\t')
+
+df_train.to_pickle(os.path.join(cwd,'data/processed_data/df_train.df'))
+df_test.to_pickle(os.path.join(cwd,'data/processed_data/df_test.df'))
 
 ################################
 # STEP 6 - Feature Engineering #
@@ -330,10 +335,19 @@ print("\nTraining fastText model on {} reports...".format(len(training_data)))
 # utilize fasttext implementation from gensim, skip-gram procedure (sg=1), 300-dimensional embeddings (vector_size=300)
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText
 model = FastText(training_data, sg=1, min_count=1, vector_size=300)
+# model = FastText(proc_reports, sg=1, min_count=1, vector_size=300)
+
 word_vectors = model.wv
 word_vectors.save(os.path.join(cwd,'data/vectors.kv'))
+
 # store list of word vectors
 vector_keywords = list(word_vectors.key_to_index.keys())
+# save list
+# with open(os.path.join(cwd,'data/processed_data/vector_keywords.txt'), 'w') as filehandle:
+#     for listitem in vector_keywords:
+#         filehandle.write('%s\n' % listitem)
+with open(os.path.join(cwd,'data/processed_data/vector_keywords.pickle'), 'wb') as file:
+	pickle.dump(vector_keywords, file)
 
 # Example of how to view a word's vector, 300 length array of embeddings
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText.wv
@@ -432,5 +446,6 @@ if use_biobert == 1:
 	np.save(outpath, pca_embedding_data, allow_pickle=False)
 else:
 	pass
+
 
 print("\n------END STAGE1 SCRIPT PRINT OUTPUT------\n\n")

@@ -1,6 +1,5 @@
 # analysis pipeline 1.0
 # Stage 2 script
-# Written by Nikhil Goyal, University of Pennsylvania Perelman School of Medicine, 2021
 
 # Compatibility Information
 #   Written for Python 3.7 on Windows 10
