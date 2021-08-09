@@ -8,7 +8,7 @@
 # To execute from within the python interpreter, run:
 #	exec(open("stage2.py").read())
 # To run from command line:
-# 	python stage1.py
+# 	python stage2.py
 
 # written: 7/28/2021
 
@@ -138,14 +138,14 @@ y_test = y_test.astype('float32')
 #####################
 # CREATE LSTM MODEL #
 #####################
-batch_size=256
-epochs=30
-patience=5
+batch_size=64
+epochs=500
+patience=10
 
 
 embedding_matrix = np.load(os.path.join(cwd,'data/processed_data/fasttext-biobert_pca-proc_embedding_data.npy'))
 model = Sequential()
-model.add(Embedding(vocab_size, embedding_dim, input_length=max_seq_len, weights=[embedding_matrix],trainable=False))
+model.add(Embedding(vocab_size, embedding_dim, input_length=max_seq_len, weights=[embedding_matrix],trainable=True))
 model.add(Bidirectional(LSTM(32, return_sequences= True)))
 model.add(Dense(32,activation='relu'))
 model.add(Dropout(0.3))
@@ -155,7 +155,10 @@ model.summary()
 es_callback = EarlyStopping(monitor='val_loss', patience=patience)
 # https://stackoverflow.com/questions/61706535/keras-validation-loss-and-accuracy-stuck-at-0
 # history = model.fit(x_train, y_train, batch_size=256, epochs=30, validation_split=0.3, callbacks=[es_callback], shuffle=False, validation_data=[x_test,y_test])
-history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback], shuffle=False, validation_data=(x_test,y_test))
+
+
+# history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback], shuffle=False, validation_data=(x_train,y_train))
+history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback], shuffle=False)
 loss, accuracy = model.evaluate(x_train, y_train, verbose=False)
 print("Training Accuracy: {:.4f}".format(accuracy))
 loss, accuracy = model.evaluate(x_test, y_test, verbose=False)
@@ -163,12 +166,19 @@ print("Testing Accuracy:  {:.4f}".format(accuracy))
 # embedding_matrix = np.load(os.path.join(cwd,'data/processed_data/fasttext-glove_pca-proc_embedding_data.npy'))
 plot_history(history)
 
+# RocAuc = RocAucEvaluation(validation_data=(x_test, y_test), interval=1)
+
+
+# RocAuc = RocAucEvaluation(validation_data=(x_test, y_test), interval=1)
+
+# hist = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_data=(x_test, y_test), callbacks=[RocAuc], verbose=2)
+
 
 # ROC
 # https://androidkt.com/get-the-roc-curve-and-auc-for-keras-model/
-y_val_cat_prob = model.predict_proba(x_test)
-fpr , tpr , thresholds = roc_curve(y_test , y_val_cat_prob)
-auc_score = roc_auc_score(y_test, y_val_cat_prob)
+# y_val_cat_prob = model.predict_proba(x_test)
+# fpr , tpr , thresholds = roc_curve(y_test , y_val_cat_prob)
+# auc_score = roc_auc_score(y_test, y_val_cat_prob)
 
 ####################
 # CREATE GRU MODEL #
@@ -186,7 +196,7 @@ outp = Dense(6, activation="sigmoid")(conc)
 model = Model(inputs=inp, outputs=outp)
 model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-RocAuc = RocAucEvaluation(validation_data=(x_test, y_test), interval=1)
+# RocAuc = RocAucEvaluation(validation_data=(x_test, y_test), interval=1)
 
 
 hist = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_data=(x_test, y_test), verbose=2)
