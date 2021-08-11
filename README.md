@@ -14,3 +14,8 @@ You also need to download the GloVe embeddings Common Crawl (840B tokens, 2.2M v
 https://nlp.stanford.edu/projects/glove/
 
 Extract these to the folder: radiology_reports/data/glove_models/
+
+
+---
+
+If you have multiple .csv files with radiology report data (id, scantype, scandesc, report), put them all in the /data/raw_data/ folder, and run the script: combine_files.py
