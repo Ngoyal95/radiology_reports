@@ -12,8 +12,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 0
-use_biobert = 0
+use_glove = 1
+use_biobert = 1
 
 ###########
 # IMPORTS #
@@ -71,13 +71,13 @@ def clean_text(text):
 #########################
 # import reports
 cwd = os.getcwd()
-input_file = os.path.join(cwd,'data/goyal_reports_with_codes.csv')
+input_file = os.path.join(cwd,'data/combined_csv.csv')
 
 # read in data to pandas dataframe
 raw_data = pd.read_csv(input_file)
 
 # drop the existing id column that is taken from CSV file, replace with a new index col
-raw_data.drop(['ID'], axis=1, inplace=True)
+raw_data.drop(['id'], axis=1, inplace=True)
 raw_data['idx'] = raw_data.index
 
 ###############################################################
@@ -127,10 +127,6 @@ raw_data_copy.drop(raw_data_copy[raw_data_copy['report_category'] == -1].index, 
 # Codes to be used for Follow-up label
 code_abd_fu_codes = ['C3','C4','C5']
 code_rec_fu_codes = ['REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5']
-
-# use this for sanity check to make sure we capture all the codes correctly
-# code_abd_fu_codes = ['C1','C2','C3','C4','C5','C6','C7','C99']
-# code_rec_fu_codes = ['REC0','REC1','REC2a','REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5','REC99']
 
 # Code Abdomen
 code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")	# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
@@ -266,8 +262,6 @@ percent_cap_abd	=	100*round((report_category.count(1)-missing_abd)/report_catego
 percent_cap_rec	=	100*round((report_category.count(2)-missing_rec)/report_category.count(2),3)
 print("\nPercent of Code Abdomen / Code Rec text blocks captured by regex:\n\tCode Abdomen\t{} \n\tCode Rec\t{}".format(percent_cap_abd, percent_cap_rec))
 
-
-# TODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODOTODO
 # drop rows where we fail to capture the FU recc:
 proc_reports.drop(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 1)].index, inplace=True)
 proc_reports.drop(proc_reports[(proc_reports['followup_text'] == "[]") & (proc_reports['report_category'] == 2)].index, inplace=True)
@@ -281,9 +275,9 @@ print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d
 
 # print("\nSaving stage1_proc_data.csv...")
 # Save as CSV for manual inspection
-# proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
-# proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
-# proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
+proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
+proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
+proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
 
 #######################################
 # STEP 4 - Make train-test split sets #
@@ -318,9 +312,6 @@ print("\nActual percent split between train and test sets:\n\tTrain {} \n\tTest 
 # From these files, the relevant columns for the deep learning model are:
 # 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
 print("\nSaving train-test split sets...")
-# df_train.to_csv(os.path.join(cwd,'data/processed_data/df_train.csv'), index=False, header=True, sep='\t')
-# df_test.to_csv(os.path.join(cwd,'data/processed_data/df_test.csv'), index=False, header=True, sep='\t')
-
 df_train.to_pickle(os.path.join(cwd,'data/processed_data/df_train.df'))
 df_test.to_pickle(os.path.join(cwd,'data/processed_data/df_test.df'))
 
@@ -343,9 +334,6 @@ word_vectors.save(os.path.join(cwd,'data/vectors.kv'))
 # store list of word vectors
 vector_keywords = list(word_vectors.key_to_index.keys())
 # save list
-# with open(os.path.join(cwd,'data/processed_data/vector_keywords.txt'), 'w') as filehandle:
-#     for listitem in vector_keywords:
-#         filehandle.write('%s\n' % listitem)
 with open(os.path.join(cwd,'data/processed_data/vector_keywords.pickle'), 'wb') as file:
 	pickle.dump(vector_keywords, file)
 
@@ -361,7 +349,7 @@ FastText.save(model, os.path.join(cwd,'data/processed_data/fasttext_trained_mode
 # STEP 7 - Pulling GloVe embeddings #
 #####################################
 if use_glove == 1:
-	print("\nPulling GloVe embeddings...\n")
+	print("\nExtracting GloVe embeddings...\n")
 	# https://machinelearningmastery.com/develop-word-embeddings-python-gensim/
 	# Use Common Crawl (840B tokens, 2.2M vocab, cased, 300d vectors, 2.03 GB download)
 	glove_filename = 'data/glove_models/glove.840B.300d.txt'
@@ -415,7 +403,7 @@ if use_biobert == 1:
 	# Note, another package to access BioBERT is transformer
 	# https://stackoverflow.com/questions/58518980/extracting-fixed-vectors-from-biobert-without-using-terminal-command
 
-	print("\nPulling BioBERT embeddings...\n")
+	print("\nExtracting BioBERT embeddings...\n")
 	biobert = BiobertEmbedding()
 
 	# Access embeddings as follows:

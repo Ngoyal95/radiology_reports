@@ -25,6 +25,7 @@ import os
 import sys
 import pickle
 import numpy as np
+np.random.seed(1337)
 import pandas as pd
 
 import matplotlib
@@ -40,7 +41,7 @@ from keras.layers import Input, Dense, Activation, Embedding, SpatialDropout1D, 
 from keras.layers import LSTM, GRU, Bidirectional, GlobalAveragePooling1D, GlobalMaxPooling1D, BatchNormalization
 from keras.preprocessing import text, sequence
 from keras.callbacks import Callback, EarlyStopping
-from keras.optimizers import RMSprop
+from keras.optimizers import RMSprop, SGD
 from keras.callbacks import ModelCheckpoint
 
 
@@ -58,8 +59,8 @@ class RocAucEvaluation(Callback):
 			print("\n ROC-AUC - epoch: %d - score: %.6f \n" % (epoch+1, score))
 
 def plot_history(history):
-	acc = history.history['accuracy']
-	val_acc = history.history['val_accuracy']
+	acc = history.history['binary_accuracy']
+	val_acc = history.history['val_binary_accuracy']
 	loss = history.history['loss']
 	val_loss = history.history['val_loss']
 	x = range(1, len(acc) + 1)
@@ -78,11 +79,22 @@ def plot_history(history):
 	plt.savefig('training_acc_loss.png')
 
 def plot_roc_curve(fpr,tpr): 
-	plt.plot(fpr,tpr) 
-	plt.axis([0,1,0,1]) 
-	plt.xlabel('False Positive Rate') 
-	plt.ylabel('True Positive Rate') 
+	plt.plot(fpr,tpr)
+	plt.axis([0,1,0,1])
+	plt.xlabel('False Positive Rate')
+	plt.ylabel('True Positive Rate')
 	plt.savefig('ROC.png')
+
+
+class Histories(Callback):
+	# https://stackoverflow.com/a/52206330
+	def on_train_begin(self,logs={}):
+		self.losses = []
+		self.accuracies = []
+
+	def on_batch_end(self, batch, logs={}):
+		self.losses.append(logs.get('loss'))
+		self.accuracies.append(logs.get('acc'))
 
 
 ################
@@ -137,27 +149,39 @@ y_test = y_test.astype('float32')
 #####################
 # CREATE LSTM MODEL #
 #####################
-batch_size=64
-epochs=500
-patience=10
+batch_size=1024
+epochs=5
+patience=1
+lr=0.075
+inputlayer2=300
+lstm_num=16
 
+opt = SGD(lr=lr)
+# model.compile(loss = "categorical_crossentropy", optimizer = opt)
+
+histories = Histories()
 
 embedding_matrix = np.load(os.path.join(cwd,'data/processed_data/fasttext-biobert_pca-proc_embedding_data.npy'))
 model = Sequential()
-model.add(Embedding(vocab_size, embedding_dim, input_length=max_seq_len, weights=[embedding_matrix],trainable=True))
-model.add(Bidirectional(LSTM(32, return_sequences= True)))
-model.add(Dense(32,activation='relu'))
-model.add(Dropout(0.3))
+model.add(Input(max_seq_len,))
+model.add(Input(inputlayer2,))
+model.add(Embedding(vocab_size, embedding_dim, input_length=max_seq_len, weights=[embedding_matrix],trainable=False))
+# model.add(SpatialDropout1D(0.5))
+model.add(Bidirectional(LSTM(lstm_num, return_sequences= True, dropout=0.2, recurrent_dropout=0.2)))
+model.add(Dense(4,activation='sigmoid'))
+# model.add(Dropout(0.2))
 model.add(Dense(1,activation='sigmoid'))
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.compile(loss='binary_crossentropy', optimizer='sgd', metrics=['binary_accuracy'])
 model.summary()
+
 es_callback = EarlyStopping(monitor='val_loss', patience=patience)
+
 # https://stackoverflow.com/questions/61706535/keras-validation-loss-and-accuracy-stuck-at-0
 # history = model.fit(x_train, y_train, batch_size=256, epochs=30, validation_split=0.3, callbacks=[es_callback], shuffle=False, validation_data=[x_test,y_test])
 
 
 # history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback], shuffle=False, validation_data=(x_train,y_train))
-history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback], shuffle=False)
+history = model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, validation_split=0.3, callbacks=[es_callback, histories], shuffle=False, validation_data=(x_test,y_test))
 loss, accuracy = model.evaluate(x_train, y_train, verbose=False)
 print("Training Accuracy: {:.4f}".format(accuracy))
 loss, accuracy = model.evaluate(x_test, y_test, verbose=False)
