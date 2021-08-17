@@ -13,4 +13,5 @@
 # Scripts
 !stage1.py
 !stage2.py
+!stage3.py
 !combine_files.py
