@@ -23,19 +23,14 @@ import re
 import string
 import sys
 import pickle
-
 from collections import Counter
-
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
-
 import gensim
 from gensim.models import FastText, KeyedVectors
-
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.stem import PorterStemmer
-
 import numpy as np
 from numpy import zeros
 
@@ -46,9 +41,6 @@ from biobert_embedding.embedding import BiobertEmbedding
 # PCA on word embeddings
 from sklearn.decomposition import PCA
 
-# train-test split
-from sklearn.datasets import make_blobs
-from sklearn.model_selection import train_test_split
 
 ########################
 # FUNCTION DEFINITIONS #
@@ -67,7 +59,6 @@ def clean_text(text):
 
 #########################
 # STEP 1 - READ IN DATA #
-# functional 7/17/21	#
 #########################
 # import reports
 cwd = os.getcwd()
@@ -86,7 +77,6 @@ raw_data['idx'] = raw_data.index
 # report_category values are {1: code abdomen, 2:code rec, -1: code cancer, -2: other}
 report_category = []
 raw_data_copy = raw_data
-
 for ind in raw_data_copy.index:
 	report = raw_data_copy['report'][ind]
 	if "FOCAL_MASS_SUMMARY" in report:
@@ -146,11 +136,9 @@ act_112_regex = re.compile("(?ims)(FOLLOW-UP NOTICE:[\n\w\s\d,.!?\\\/\-();:\[\]\
 # Store non-tokenized copy of report text
 reports_clean = []
 reports_clean_noFU = []
-
 # Store tokenized copy of report text
 reports_clean_tokenized = []
 reports_clean_tokenized_noFU = []
-
 # For Code Abdomen/Rec reports, use this list to store their CODE text content
 followup_text = []
 # For Code Abdomen/Rec reports, determine which codes (i.e. C1-C99, REC1-REC99) is present
@@ -159,7 +147,6 @@ followup_options = []
 followup_label = []
 # Use for detecting presence of a F/U option that for labeling (i.e C3,C4,C5, REC2b, etc..)
 check = False
-
 # how many reports have act 112 text
 act_112_count = 0
 
@@ -219,12 +206,6 @@ for ind in raw_data_copy.index:
 	else:
 		followup_label.append(0)
 
-	# clean and tokenize the RAW report text
-	# report_clean = clean_text(report)
-	# reports_clean.append(report)
-	# report_clean_tokenized = word_tokenize(report_clean)
-	# reports_clean_tokenized.append(report_clean_tokenized)
-	
 	# clean and tokenize the report text after CodeAbdomen/CodeRec text has been removed
 	report_clean_noFU = clean_text(report_noFU)
 	reports_clean_noFU.append(report_clean_noFU)
@@ -236,11 +217,6 @@ for ind in raw_data_copy.index:
 proc_reports = raw_data_copy
 proc_reports['followup_text'] = followup_text
 proc_reports['followup_options'] = followup_options
-
-# copies with FU Code Abd/Rec text
-# proc_reports['report_clean'] = reports_clean
-# proc_reports['report_clean_tokenized'] = reports_clean_tokenized
-
 proc_reports['report_clean_noFU'] = reports_clean_noFU
 proc_reports['report_clean_tokenized_noFU'] = reports_clean_tokenized_noFU
 proc_reports['fu_label'] = followup_label
@@ -248,8 +224,6 @@ proc_reports['fu_label'] = followup_label
 # Apply porter stemming
 # https://stackoverflow.com/questions/37443138/python-stemming-with-pandas-dataframe
 ps = PorterStemmer()
-# proc_reports['report_clean_tokenized_stemmed'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
-# proc_reports['report_clean_tokenized_stemmed_FU'] = proc_reports['report_clean_tokenized'].apply(lambda x: [ps.stem(y) for y in x])
 proc_reports['report_clean_tokenized_stemmed_noFU'] = proc_reports['report_clean_tokenized_noFU'].apply(lambda x: [ps.stem(y) for y in x])
 
 # Check how many reports that had FU are not captured by regex (column: followup_text)
@@ -272,53 +246,13 @@ d = Counter(followup_label)
 print("\nFull Dataset Statistics:")
 print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d[0]))
 
-
-# print("\nSaving stage1_proc_data.csv...")
 # Save as CSV for manual inspection
-# proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
 proc_reports.to_pickle(os.path.join(cwd,'data/processed_data/proc_reports.df'))
-
 proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
 proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
 
-#######################################
-# STEP 4 - Make train-test split sets #
-#######################################
-# 80/20 train/test split using scikitlearn
-# Note, only pseudo-random split, because we want to have the same split for testing different models (Repeatable Train-Test Splits)
-# https://machinelearningmastery.com/train-test-split-for-evaluating-machine-learning-algorithms/
-print("\nGenerating 80/20 train-test split sets...")
-df_train, df_test = train_test_split(proc_reports, test_size=0.20, random_state=1)
-
-
-tr_followup_label = list(df_train['fu_label'])
-tr_report_category = list(df_train['report_category'])
-d1 = Counter(tr_followup_label)
-d2 = Counter(tr_report_category)
-print("\nNumber of reports in TRAINING set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(tr_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
-
-te_followup_label = list(df_test['fu_label'])
-te_report_category = list(df_test['report_category'])
-d1 = Counter(te_followup_label)
-d2 = Counter(te_report_category)
-print("\nNumber of reports in TEST set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(te_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
-
-print("\nActual percent split between train and test sets:\n\tTrain {} \n\tTest {}".format(
-	round(len(tr_followup_label)/len(followup_label),5),
-	round(len(te_followup_label)/len(followup_label),5)
-	))
-
-####################################################
-# STEP 5 - Save data for stage2.py (deep learning) #
-####################################################
-# From these files, the relevant columns for the deep learning model are:
-# 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
-print("\nSaving train-test split sets...")
-df_train.to_pickle(os.path.join(cwd,'data/processed_data/df_train.df'))
-df_test.to_pickle(os.path.join(cwd,'data/processed_data/df_test.df'))
-
 ################################
-# STEP 6 - Feature Engineering #
+# STEP 4 - Feature Engineering #
 ################################
 # fastText
 # train our word vector model using the reports that are flagged as report_category == 0 or 1
@@ -348,7 +282,7 @@ FastText.save(model, os.path.join(cwd,'data/processed_data/fasttext_trained_mode
 
 
 #####################################
-# STEP 7 - Pulling GloVe embeddings #
+# STEP 5 - Pulling GloVe embeddings #
 #####################################
 if use_glove == 1:
 	print("\nExtracting GloVe embeddings...\n")
@@ -396,7 +330,7 @@ else:
 	pass
 
 #######################################
-# STEP 8 - Pulling BioBERT embeddings #
+# STEP 6 - Pulling BioBERT embeddings #
 #######################################
 if use_biobert == 1:
 	# Using biobert_embeddings package (with some slight modifications to embeddings.py)
