@@ -12,8 +12,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 1
-use_biobert = 1
+use_glove = 0
+use_biobert = 0
 
 ###########
 # IMPORTS #
@@ -126,7 +126,7 @@ raw_data_copy.drop(raw_data_copy[raw_data_copy['report_category'] == -1].index, 
 
 # Codes to be used for Follow-up label
 code_abd_fu_codes = ['C3','C4','C5']
-code_rec_fu_codes = ['REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC5']
+code_rec_fu_codes = ['REC2b','REC3','REC3a','REC3b','REC3c','REC4','REC4a','REC4b','REC5']
 
 # Code Abdomen
 code_abd_regex = re.compile("(?sim)FOCAL_MASS_SUMMARY.*?\}(?!,)")	# regex uses the negative lookahead \}(?!,) to find closing brace not followed by a commma
@@ -275,7 +275,9 @@ print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d
 
 # print("\nSaving stage1_proc_data.csv...")
 # Save as CSV for manual inspection
-proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
+# proc_reports.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data.csv'))
+proc_reports.to_pickle(os.path.join(cwd,'data/processed_data/proc_reports.df'))
+
 proc_reports_trunc = proc_reports[['idx','followup_text','followup_options','fu_label']]
 proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data_TRUNCATED.csv'))
 
