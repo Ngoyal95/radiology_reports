@@ -12,8 +12,8 @@
 ###################
 # GlOBAL SETTINGS #
 ###################
-use_glove = 0
-use_biobert = 0
+use_glove = 1
+use_biobert = 1
 
 ###########
 # IMPORTS #
@@ -257,7 +257,7 @@ proc_reports_trunc.to_csv(os.path.join(cwd,'data/processed_data/stage1_proc_data
 # fastText
 # train our word vector model using the reports that are flagged as report_category == 0 or 1
 # DO NOT include the FU text in the training data (so use only the field report_clean_tokenized_stemmed_noFU)
-training_data = [x for x in df_train['report_clean_tokenized_stemmed_noFU']]
+training_data = [x for x in proc_reports['report_clean_tokenized_stemmed_noFU']]
 print("\nTraining fastText model on {} reports...".format(len(training_data)))
 # utilize fasttext implementation from gensim, skip-gram procedure (sg=1), 300-dimensional embeddings (vector_size=300)
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText
@@ -279,7 +279,6 @@ with open(os.path.join(cwd,'data/processed_data/vector_keywords.pickle'), 'wb') 
 	
 # https://radimrehurek.com/gensim/models/fasttext.html#gensim.models.fasttext.FastText.save
 FastText.save(model, os.path.join(cwd,'data/processed_data/fasttext_trained_model_300dim'))
-
 
 #####################################
 # STEP 5 - Pulling GloVe embeddings #

@@ -9,75 +9,106 @@
 # To run from command line:
 # 	python stage2.py
 
-# written: 7/28/2021
+# written: 8/17/2021
 
 ###################
 # GlOBAL SETTINGS #
 ###################
 
+# true_false_label_ratio=0.5
+
+# single_split_ratio=0.8
+
+# incremental_split_sets=0
+
 ###########
 # IMPORTS #
 ###########
-
 import os
 import sys
 import pickle
 import numpy as np
 np.random.seed(1337)
 import pandas as pd
-
+from collections import Counter
 import matplotlib
 matplotlib.use('Svg')
 import matplotlib.pyplot as plt
 
+# train-test split
+from sklearn.datasets import make_blobs
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
-################
-# READ IN DATA #
-################
+
+#########################
+# STEP 1 - READ IN DATA #
+#########################
 cwd = os.getcwd()
 
 with open(os.path.join(cwd,'data/processed_data/vector_keywords.pickle'), 'rb') as file:    
 	vector_keywords = pickle.load(file)
-vocab_size=len(vector_keywords)
+vocab_size = len(vector_keywords)
 
-df_reports = pd.read_pickle(os.path.join(cwd,'data/processed_data/proc_reports.df'))
+proc_reports = pd.read_pickle(os.path.join(cwd,'data/processed_data/proc_reports.df'))
 
+followup_label = list(proc_reports['fu_label'])
+d = Counter(followup_label)
+print("\nFull Dataset Statistics:")
+print("\nNumber of reports\n\tfollow-up\t{} \n\tNon-followup\t{}".format(d[1], d[0]))
 
+#####################################################################
+# STEP 2 - Generate 80/20 split set with equal pos and neg examples #
+#####################################################################
+num_pos_labels = d[1]
+num_neg_labels = d[0]
 
+label_count_delta = abs(num_pos_labels-num_neg_labels)
 
-###########################################################
-# STEP 5 - Determine max report len, and then pad reports #
-###########################################################
-reports_train = [rep for rep in df_train['report_clean_tokenized_stemmed_noFU']]
-reports_test = [rep for rep in df_test['report_clean_tokenized_stemmed_noFU']]
+# proc_reports_balanced has half fu_label=1, half fu_label=0
+if num_pos_labels > num_neg_labels:
+	# more positive than negative, so randomly drop positive label rows (fu_label = 1)
+	proc_reports_balanced = proc_reports.drop(proc_reports[proc_reports['fu_label'].eq(1)].sample(label_count_delta).index)
+elif num_pos_labels < num_neg_labels:
+	# more negative than positive, so randomly drop negative label rows (fu_label = 0)
+	proc_reports_balanced = proc_reports.drop(proc_reports[proc_reports['fu_label'].eq(0)].sample(label_count_delta).index)
+else:
+	# already balance between positive and negative examples
+	proc_reports_balanced = proc_reports
+	pass
 
-report_lengths = [len(x) for x in reports_train]
+followup_label = list(proc_reports_balanced['fu_label'])
 
-print("\nReport lengths (pure semantic content, tokenized):\n\tAverage:\t{} \n\tMax:\t{} \n\tMin:\t{}\n".format(sum(report_lengths)/len(report_lengths), max(report_lengths), min(report_lengths)))
-print("\n\tLongest report (idx {}):\n".format(report_lengths.index(max(report_lengths))))
-# a=np.histogram(report_lengths)
-# plt.hist(a)
-# plt.savefig('pre_pad-trunc_report_lengths.png')
+#######################################
+# STEP 3 - Make train-test split sets #
+#######################################
+# 80/20 train/test split using scikitlearn
+# Note, only pseudo-random split, because we want to have the same split for testing different models (Repeatable Train-Test Splits)
+# https://machinelearningmastery.com/train-test-split-for-evaluating-machine-learning-algorithms/
+print("\nGenerating 80/20 train-test split sets...")
+df_train, df_test = train_test_split(proc_reports_balanced, test_size=0.20, random_state=1)
 
-# convert each report to a sequence of integers
-tokenizer = Tokenizer(num_words=vocab_size, lower=True, char_level=False)
-tokenizer.fit_on_texts(reports_train + reports_test)
+tr_followup_label = list(df_train['fu_label'])
+tr_report_category = list(df_train['report_category'])
+d1 = Counter(tr_followup_label)
+d2 = Counter(tr_report_category)
+print("\nNumber of reports in TRAINING set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(tr_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
 
-# https://stackoverflow.com/questions/51956000/what-does-keras-tokenizer-method-exactly-do
-word_seq_train = tokenizer.texts_to_sequences(reports_train)
-word_seq_test = tokenizer.texts_to_sequences(reports_test)
-word_index = tokenizer.word_index
+te_followup_label = list(df_test['fu_label'])
+te_report_category = list(df_test['report_category'])
+d1 = Counter(te_followup_label)
+d2 = Counter(te_report_category)
+print("\nNumber of reports in TEST set: \n\tTotal\t\t{} \n\tFU\t\t{} \n\tnon-FU\t\t{} \n\tCode Abdomen\t{} \n\tCode Rec\t{} \n\tOther\t\t{}".format(len(te_followup_label), d1[1], d1[0], d2[1], d2[2], d2[-2]))
 
-# Pad word_seq_train
-x_train = sequence.pad_sequences(word_seq_train, maxlen=max_seq_len, padding='post', dtype=object, truncating='post')
-x_test = sequence.pad_sequences(word_seq_test, maxlen=max_seq_len, padding='post', dtype=object, truncating='post')
+print("\nActual percent split between train and test sets:\n\tTrain {} \n\tTest {}".format(
+	round(len(tr_followup_label)/len(followup_label),5),
+	round(len(te_followup_label)/len(followup_label),5)
+	))
 
-y_train = np.asarray([x for x in df_train['fu_label']]).astype(np.int)
-y_test = np.asarray([x for x in df_test['fu_label']]).astype(np.int)
-
-x_train = x_train.astype('int')
-y_train = y_train.astype('int')
-
-x_test = x_test.astype('int')
-y_test = y_test.astype('int')
-
+####################################################
+# STEP 4 - Save data for stage2.py (deep learning) #
+####################################################
+# From these files, the relevant columns for the deep learning model are:
+# 'ID','report_clean_tokenized_stemmed_noFU','fu_label'
+print("\nSaving train-test split sets...")
+df_train.to_pickle(os.path.join(cwd,'data/processed_data/df_train.df'))
+df_test.to_pickle(os.path.join(cwd,'data/processed_data/df_test.df'))
